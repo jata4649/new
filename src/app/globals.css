@@ -1,0 +1,71 @@
+@import 'tailwindcss';
+
+/*
+ * Tailwind CSS v4 は CSS ファースト設定。
+ * デザイントークンは @theme で定義し、shadcn/ui もこの変数を参照する。
+ *
+ * 方針:
+ *  - スマートフォンファースト（既定のブレークポイントをそのまま使う）
+ *  - ゲーム／アニメ風だが、完全にオリジナルの配色にする
+ *  - prefers-reduced-motion に対応する（要件 11: 演出のアクセシビリティ）
+ */
+
+@theme {
+  /* ベース配色: 深い紺 + 発光するシアン／マゼンタ */
+  --color-base-50: oklch(0.98 0.01 264);
+  --color-base-100: oklch(0.94 0.02 264);
+  --color-base-700: oklch(0.36 0.05 264);
+  --color-base-800: oklch(0.26 0.05 264);
+  --color-base-900: oklch(0.18 0.04 264);
+  --color-base-950: oklch(0.12 0.03 264);
+
+  --color-accent-400: oklch(0.78 0.16 195);
+  --color-accent-500: oklch(0.68 0.18 195);
+  --color-accent-600: oklch(0.58 0.18 195);
+
+  /* 景品ランクごとの演出色（NORMAL / BLUE / GOLD / RAINBOW / JACKPOT） */
+  --color-tier-normal: oklch(0.72 0.02 264);
+  --color-tier-blue: oklch(0.68 0.17 250);
+  --color-tier-gold: oklch(0.82 0.15 85);
+  --color-tier-rainbow: oklch(0.75 0.2 320);
+  --color-tier-jackpot: oklch(0.7 0.24 20);
+
+  --font-sans:
+    'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', Meiryo, system-ui, sans-serif;
+
+  --radius-card: 0.75rem;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-base-950);
+  color: var(--color-base-50);
+  font-family: var(--font-sans);
+  /* iOS Safari で入力時に拡大されないようにする */
+  -webkit-text-size-adjust: 100%;
+}
+
+/* キーボード操作時のフォーカスを常に視認できるようにする（要件 16: アクセシビリティ） */
+:focus-visible {
+  outline: 2px solid var(--color-accent-400);
+  outline-offset: 2px;
+}
+
+/*
+ * 要件 11: prefers-reduced-motion への対応。
+ * 演出を止めても「結果が分からなくなる」ことがないよう、
+ * アニメーションは装飾に限定し、結果表示は静的 DOM で完結させる。
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

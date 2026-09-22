@@ -1,0 +1,929 @@
+// ============================================================================
+//  オンラインオリパ MVP - Prisma Schema
+// ----------------------------------------------------------------------------
+//  設計原則
+//   1. 金額・ポイント・口数はすべて Int（整数）。浮動小数点は一切使わない。
+//   2. ポイントの真実は point_ledger_entries（追記専用台帳）。
+//      point_accounts.balance は高速参照用のキャッシュに過ぎない。
+//   3. 抽選の真実は oripa_slots。remaining_slots はキャッシュ。
+//   4. 台帳 / 決済 / 抽選 / 当選 / 発送 / 監査は物理削除しない（deletedAt も持たない）。
+//      DB ロールレベルで UPDATE / DELETE を REVOKE する（migrations/0002_guards 参照）。
+//   5. 履歴系は「その時点の値」をスナップショットする。マスタ変更が過去を書き換えない。
+//
+//  CHECK 制約・部分 UNIQUE インデックス・権限の REVOKE は Prisma では表現できないため
+//  prisma/migrations/0002_guards/migration.sql で生 SQL として定義している。
+//  スキーマを変更する際は必ずそちらも確認すること。
+// ============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+/// Prisma 7 以降、接続 URL は prisma.config.ts で指定する。
+/// アプリ側は @prisma/adapter-pg 経由で接続する（src/server/db.ts）。
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+//  Enums
+// ============================================================================
+
+/// ユーザーの利用可否。SUSPENDED / WITHDRAWN は抽選・交換・発送申請を行えない。
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  WITHDRAWN
+
+  @@map("user_status")
+}
+
+/// RBAC のロール。MVP では実質 USER と ADMIN のみ使用する。
+/// 権限の実体は src/lib/auth/permissions.ts の ROLE_PERMISSIONS で定義する。
+enum Role {
+  USER
+  SUPPORT
+  OPERATOR
+  ADMIN
+  SUPER_ADMIN
+
+  @@map("role")
+}
+
+/// PAID = 対価を伴って発行されたポイント（資金決済法の観点から有効期限に上限あり）
+/// FREE = 無償ポイント（ボーナス・当選商品のポイント交換など）
+enum PointType {
+  PAID
+  FREE
+
+  @@map("point_type")
+}
+
+enum PointTxType {
+  PURCHASE
+  DRAW
+  PRIZE_EXCHANGE
+  BONUS
+  ADJUSTMENT
+  EXPIRE
+  REFUND
+  REVERSAL
+
+  @@map("point_tx_type")
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+
+  @@map("payment_status")
+}
+
+enum InventoryStatus {
+  AVAILABLE
+  ALLOCATED
+  WON
+  SHIPPING_REQUESTED
+  SHIPPED
+  EXCHANGED
+  DAMAGED
+  LOST
+
+  @@map("inventory_status")
+}
+
+enum CardCondition {
+  MINT
+  NEAR_MINT
+  EXCELLENT
+  GOOD
+  PLAYED
+  DAMAGED
+  GRADED
+
+  @@map("card_condition")
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  SUSPENDED
+  SOLD_OUT
+  ENDED
+  ARCHIVED
+
+  @@map("campaign_status")
+}
+
+enum SlotStatus {
+  AVAILABLE
+  RESERVED
+  DRAWN
+  CANCELLED
+
+  @@map("slot_status")
+}
+
+/// 当選商品の状態。UNDECIDED からのみ EXCHANGED / SHIPPING_REQUESTED へ遷移できる。
+enum PrizeStatus {
+  UNDECIDED
+  EXCHANGED
+  SHIPPING_REQUESTED
+  SHIPPED
+  CANCELLED
+
+  @@map("prize_status")
+}
+
+enum ShippingStatus {
+  REQUESTED
+  CHECKING
+  PACKING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+
+  @@map("shipping_status")
+}
+
+/// 演出ランク。抽選結果と同時にスナップショットされ、後から変更されない。
+enum EffectTier {
+  NORMAL
+  BLUE
+  GOLD
+  RAINBOW
+  JACKPOT
+
+  @@map("effect_tier")
+}
+
+enum IdempotencyState {
+  IN_PROGRESS
+  SUCCEEDED
+  FAILED
+
+  @@map("idempotency_state")
+}
+
+enum AuditActorType {
+  USER
+  ADMIN
+  SYSTEM
+
+  @@map("audit_actor_type")
+}
+
+// ============================================================================
+//  ユーザー / 認証
+// ============================================================================
+
+model User {
+  id            String     @id @default(cuid())
+  email         String     @unique
+  /// Auth.js アダプタ互換のためのフィールド名。null = メール未確認。
+  /// MVP では確認を必須化しないが、カラムだけ先に用意しておく。
+  emailVerified DateTime?  @map("email_verified")
+  /// argon2id ハッシュ。平文パスワードはどこにも保存しない。
+  passwordHash  String     @map("password_hash")
+  phoneNumber   String?    @map("phone_number")
+  phoneVerified DateTime?  @map("phone_verified")
+  role          Role       @default(USER)
+  status        UserStatus @default(ACTIVE)
+  /// 停止理由。status 変更時に管理者が必ず入力する（アプリ層で強制）。
+  statusReason  String?    @map("status_reason")
+  statusChangedAt DateTime? @map("status_changed_at")
+  lastLoginAt   DateTime?  @map("last_login_at")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+  /// 退会は論理削除。台帳・抽選履歴は残す。
+  deletedAt     DateTime?  @map("deleted_at")
+
+  profile            UserProfile?
+  addresses          Address[]
+  pointAccount       PointAccount?
+  pointLots          PointLot[]
+  ledgerEntries      PointLedgerEntry[]
+  payments           PaymentTransaction[]
+  drawTransactions   DrawTransaction[]
+  prizes             UserPrize[]
+  shippingRequests   ShippingRequest[]
+  idempotencyKeys    IdempotencyKey[]
+  sessions           UserSession[]
+  accounts           Account[]
+  roleAssignments    UserRoleAssignment[]
+  campaignCounters   UserCampaignCounter[]
+  passwordResets     PasswordResetToken[]
+  drawnSlots         OripaSlot[]          @relation("SlotDrawnBy")
+
+  @@index([status, createdAt])
+  @@index([role])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model UserProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique @map("user_id")
+  displayName String   @map("display_name")
+  /// 生年月日。年齢確認を後から導入できるよう先に用意する。
+  birthDate   DateTime? @map("birth_date")
+  avatarKey   String?  @map("avatar_key")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+model Address {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  recipientName String  @map("recipient_name")
+  postalCode   String   @map("postal_code")
+  prefecture   String
+  city         String
+  addressLine1 String   @map("address_line1")
+  addressLine2 String?  @map("address_line2")
+  phoneNumber  String   @map("phone_number")
+  isDefault    Boolean  @default(false) @map("is_default")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shippingRequests ShippingRequest[]
+
+  @@index([userId, deletedAt])
+  @@map("addresses")
+}
+
+/// 将来の複数ロール付与・期限付き権限に備えたテーブル。
+/// MVP では User.role を正とし、このテーブルは使用しない（スキーマのみ先行作成）。
+model UserRoleAssignment {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id")
+  role       Role
+  grantedBy  String?   @map("granted_by")
+  grantedAt  DateTime  @default(now()) @map("granted_at")
+  expiresAt  DateTime? @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role])
+  @@map("user_role_assignments")
+}
+
+/// セッションの失効管理テーブル。
+/// Auth.js の Credentials プロバイダは JWT 戦略しか使えないため、
+/// JWT に sessionId を載せ、サーバー側で毎リクエストこの行の有効性を確認する。
+/// これにより「管理者が停止した瞬間にログアウトさせる」ことができる。
+model UserSession {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  /// 同時ログイン端末の識別用（表示目的のみ）
+  userAgent    String?  @map("user_agent")
+  ip           String?
+  issuedAt     DateTime @default(now()) @map("issued_at")
+  lastSeenAt   DateTime @default(now()) @map("last_seen_at")
+  expiresAt    DateTime @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+  revokedReason String? @map("revoked_reason")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
+/// Auth.js アダプタ互換モデル。MVP では未使用（OAuth 連携を追加する際に有効化する）。
+model Account {
+  id                String  @id @default(cuid())
+  userId            String  @map("user_id")
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+/// メール確認・パスワード再設定で使用する使い捨てトークン。
+/// トークン本体はハッシュで保存し、平文は保存しない。
+model VerificationToken {
+  identifier String
+  tokenHash  String   @map("token_hash")
+  expires    DateTime
+  purpose    String   @default("EMAIL_VERIFICATION")
+
+  @@unique([identifier, tokenHash])
+  @@map("verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ============================================================================
+//  ポイント（台帳 3 層構造）
+//   point_ledger_entries : 真実（追記専用）
+//   point_lot_consumptions: どのロットから引いたかの明細
+//   point_lots           : 有効期限つき残高の実体
+//   point_accounts       : 高速参照用キャッシュ（台帳から再構築可能）
+// ============================================================================
+
+model PointAccount {
+  id          String   @id @default(cuid())
+  userId      String   @unique @map("user_id")
+  /// 有償ポイント残高キャッシュ。正は point_lots / point_ledger_entries。
+  paidBalance Int      @default(0) @map("paid_balance")
+  freeBalance Int      @default(0) @map("free_balance")
+  /// 楽観ロック用。更新のたびに +1 する。
+  version     Int      @default(0)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("point_accounts")
+}
+
+model PointLot {
+  id              String      @id @default(cuid())
+  userId          String      @map("user_id")
+  pointType       PointType   @map("point_type")
+  /// 発行時の額。以後不変。
+  amountIssued    Int         @map("amount_issued")
+  /// 残高。0 <= amountRemaining <= amountIssued（CHECK 制約で保証）。
+  amountRemaining Int         @map("amount_remaining")
+  issuedAt        DateTime    @default(now()) @map("issued_at")
+  /// PAID は issuedAt + POINT_EXPIRY_DAYS_PAID（180 日上限）を超えられない。
+  expiresAt       DateTime    @map("expires_at")
+  sourceType      PointTxType @map("source_type")
+  /// paymentTransactionId / userPrizeId / ledgerEntryId など
+  sourceId        String?     @map("source_id")
+  exhaustedAt     DateTime?   @map("exhausted_at")
+  expiredAt       DateTime?   @map("expired_at")
+
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  consumptions PointLotConsumption[]
+
+  /// 消費対象ロットの探索（有効期限昇順）を 1 インデックスで賄う
+  @@index([userId, pointType, expiresAt, amountRemaining])
+  @@index([expiresAt, amountRemaining])
+  @@index([sourceType, sourceId])
+  @@map("point_lots")
+}
+
+/// 追記専用台帳。UPDATE / DELETE は DB ロールレベルで禁止する。
+model PointLedgerEntry {
+  id           String      @id @default(cuid())
+  userId       String      @map("user_id")
+  txType       PointTxType @map("tx_type")
+  /// 単一種別の増減なら PAID / FREE、複数ロットにまたがる消費なら null。
+  /// 内訳は point_lot_consumptions を参照する。
+  pointType    PointType?  @map("point_type")
+  /// 符号付き。消費は負値。
+  amount       Int
+  /// 記帳直後の合計残高（監査用スナップショット）
+  balanceAfter Int         @map("balance_after")
+  /// ADJUSTMENT / REVERSAL では必須（アプリ層で強制）
+  reason       String?
+  /// 'PAYMENT_TRANSACTION' | 'DRAW_TRANSACTION' | 'USER_PRIZE' | 'ADMIN' など
+  sourceType   String?     @map("source_type")
+  sourceId     String?     @map("source_id")
+  /// 管理者操作の場合の実行者
+  createdBy    String?     @map("created_by")
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  user         User                  @relation(fields: [userId], references: [id])
+  consumptions PointLotConsumption[]
+  payment      PaymentTransaction?   @relation("PaymentGrant")
+  drawTx       DrawTransaction?      @relation("DrawSpend")
+
+  /// INV-9: 同一ソースに対する同一種別の記帳は 1 件まで
+  /// （決済 1 件からの PURCHASE 付与が二重に起きない／NULL 同士は衝突しない）
+  @@unique([sourceType, sourceId, txType], name: "uniq_ledger_source")
+  @@index([userId, createdAt])
+  @@index([txType, createdAt])
+  @@map("point_ledger_entries")
+}
+
+/// 「どの記帳が、どのロットから何ポイント引いたか」の明細。
+/// これが無いと REFUND / REVERSAL で元のロット（＝元の有効期限）に戻せない。
+model PointLotConsumption {
+  id            String   @id @default(cuid())
+  ledgerEntryId String   @map("ledger_entry_id")
+  lotId         String   @map("lot_id")
+  /// 常に正値（消費量）。戻し入れは REVERSAL の記帳から負値で参照せず、別エントリを作る。
+  amount        Int
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  ledgerEntry PointLedgerEntry @relation(fields: [ledgerEntryId], references: [id])
+  lot         PointLot         @relation(fields: [lotId], references: [id])
+
+  @@index([ledgerEntryId])
+  @@index([lotId])
+  @@map("point_lot_consumptions")
+}
+
+// ============================================================================
+//  決済（MVP は MockPaymentProvider のみ。実カード情報は一切保存しない）
+// ============================================================================
+
+model PaymentTransaction {
+  id             String        @id @default(cuid())
+  userId         String        @map("user_id")
+  /// 'mock' 。将来 'stripe' 等に差し替わる。
+  provider       String        @default("mock")
+  /// プロバイダ側の決済 ID。冪等性の基点。
+  providerPaymentId String     @map("provider_payment_id")
+  /// 支払金額（円・整数）
+  amountYen      Int           @map("amount_yen")
+  /// 付与予定ポイント（1 円 = 1 ポイント）
+  grantPoints    Int           @map("grant_points")
+  status         PaymentStatus @default(PENDING)
+  failureCode    String?       @map("failure_code")
+  /// 付与した台帳エントリ。SUCCEEDED 時のみ設定される。
+  grantLedgerEntryId String?   @unique @map("grant_ledger_entry_id")
+  idempotencyKeyId String?     @unique @map("idempotency_key_id")
+  confirmedAt    DateTime?     @map("confirmed_at")
+  cancelledAt    DateTime?     @map("cancelled_at")
+  refundedAt     DateTime?     @map("refunded_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  user           User                  @relation(fields: [userId], references: [id])
+  grantLedgerEntry PointLedgerEntry?   @relation("PaymentGrant", fields: [grantLedgerEntryId], references: [id])
+  idempotencyKey IdempotencyKey?       @relation(fields: [idempotencyKeyId], references: [id])
+  webhookEvents  PaymentWebhookEvent[]
+
+  @@unique([provider, providerPaymentId])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("payment_transactions")
+}
+
+/// Webhook の重複・遅延・順序逆転を吸収するための受信記録。
+model PaymentWebhookEvent {
+  id            String        @id @default(cuid())
+  provider      String        @default("mock")
+  /// プロバイダ側のイベント ID。重複排除の要。
+  eventId       String        @map("event_id")
+  eventType     String        @map("event_type")
+  paymentTransactionId String? @map("payment_transaction_id")
+  /// プロバイダが主張するイベント発生時刻。順序逆転の判定に使う。
+  occurredAt    DateTime      @map("occurred_at")
+  receivedAt    DateTime      @default(now()) @map("received_at")
+  /// 署名検証の結果
+  signatureValid Boolean      @map("signature_valid")
+  /// 実際に状態遷移を起こしたか（false = 重複 or 逆転で無視した）
+  applied       Boolean       @default(false)
+  skipReason    String?       @map("skip_reason")
+  payload       Json
+
+  payment PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id])
+
+  /// 同一イベントの多重受信を DB で弾く
+  @@unique([provider, eventId])
+  @@index([paymentTransactionId, occurredAt])
+  @@map("payment_webhook_events")
+}
+
+// ============================================================================
+//  在庫（物理個体単位）
+// ============================================================================
+
+model Inventory {
+  id                String          @id @default(cuid())
+  /// 在庫コード（人間が読む識別子）
+  code              String          @unique
+  cardTitle         String          @map("card_title")
+  cardName          String          @map("card_name")
+  cardNumber        String?         @map("card_number")
+  rarity            String?
+  condition         CardCondition   @default(NEAR_MINT)
+  gradingCompany    String?         @map("grading_company")
+  gradingScore      String?         @map("grading_score")
+  gradingCertNo     String?         @map("grading_cert_no")
+  /// 仕入原価（円・整数）。管理画面でのみ参照可。
+  costPriceYen      Int?            @map("cost_price_yen")
+  /// 参考価格（円・整数）
+  referencePriceYen Int?            @map("reference_price_yen")
+  /// ポイント交換価格のマスタ値。抽選時に DrawResult へスナップショットされる。
+  exchangePoints    Int             @map("exchange_points")
+  storageLocation   String?         @map("storage_location")
+  frontImageKey     String?         @map("front_image_key")
+  backImageKey      String?         @map("back_image_key")
+  note              String?
+  status            InventoryStatus @default(AVAILABLE)
+  // --- 古物営業法の帳簿要件を満たすための記録（後付け不可のため最初から持つ） ---
+  acquisitionSource String?         @map("acquisition_source")
+  acquiredFrom      String?         @map("acquired_from")
+  acquiredAt        DateTime?       @map("acquired_at")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  slot      OripaSlot?
+  userPrize UserPrize?
+
+  @@index([status, createdAt])
+  @@index([cardTitle, rarity])
+  @@index([deletedAt])
+  @@map("inventories")
+}
+
+/// 物理個体を持たない汎用景品（ハズレ枠を作らないための代替商品）。
+/// 複数スロットへ割当可能であり、Inventory の「1 個体 = 1 スロット」原則の唯一の例外。
+model GenericPrize {
+  id             String    @id @default(cuid())
+  code           String    @unique
+  name           String
+  description    String?
+  imageKey       String?   @map("image_key")
+  /// この景品を引いたときのポイント交換額
+  exchangePoints Int       @map("exchange_points")
+  /// 発送可能か。false の場合はポイント交換のみ選択できる。
+  shippable      Boolean   @default(false)
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  slots  OripaSlot[]
+  prizes UserPrize[]
+
+  @@map("generic_prizes")
+}
+
+// ============================================================================
+//  オリパ（キャンペーン / 景品ランク / 抽選スロット）
+// ============================================================================
+
+model OripaCampaign {
+  id             String         @id @default(cuid())
+  slug           String         @unique
+  name           String
+  description    String?
+  thumbnailKey   String?        @map("thumbnail_key")
+  /// 1 口価格（ポイント・整数・1 以上）
+  pricePoints    Int            @map("price_points")
+  /// 総口数。ACTIVE 以降は変更不可。
+  totalSlots     Int            @map("total_slots")
+  /// 残り口数キャッシュ。正は oripa_slots の AVAILABLE 件数（INV-10）。
+  remainingSlots Int            @map("remaining_slots")
+  /// null = 購入上限なし
+  perUserLimit   Int?           @map("per_user_limit")
+  salesStartAt   DateTime       @map("sales_start_at")
+  salesEndAt     DateTime       @map("sales_end_at")
+  status         CampaignStatus @default(DRAFT)
+  effectSetKey   String         @default("default") @map("effect_set_key")
+
+  // --- 公開時に確定し、以後変更不可となる項目 ---
+  publishedAt      DateTime? @map("published_at")
+  publishedBy      String?   @map("published_by")
+  /// 事前シャッフル順のコミットハッシュ。販売終了後にシード公開で検証できる。
+  slotOrderCommit  String?   @map("slot_order_commit")
+  /// 価格・総口数・ランク構成のハッシュ。改変検知用。
+  configLockedHash String?   @map("config_locked_hash")
+
+  suspendedAt   DateTime? @map("suspended_at")
+  suspendReason String?   @map("suspend_reason")
+  soldOutAt     DateTime? @map("sold_out_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  tiers            OripaPrizeTier[]
+  slots            OripaSlot[]
+  drawTransactions DrawTransaction[]
+  userCounters     UserCampaignCounter[]
+
+  @@index([status, salesStartAt])
+  @@index([status, salesEndAt])
+  @@map("oripa_campaigns")
+}
+
+model OripaPrizeTier {
+  id           String     @id @default(cuid())
+  campaignId   String     @map("campaign_id")
+  /// 'S' / 'A' / 'B' ... 表示順の決定にも使う
+  code         String
+  name         String
+  /// 演出ランク
+  effectTier   EffectTier @map("effect_tier")
+  /// このランクの口数。合計が totalSlots と一致しないと公開できない。
+  slotCount    Int        @map("slot_count")
+  displayOrder Int        @map("display_order")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  campaign OripaCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  slots    OripaSlot[]
+  results  DrawResult[]
+
+  @@unique([campaignId, code])
+  @@index([campaignId, displayOrder])
+  @@map("oripa_prize_tiers")
+}
+
+/// 有限プールの実体。公開前に totalSlots 件をすべて作成する。
+model OripaSlot {
+  id         String     @id @default(cuid())
+  campaignId String     @map("campaign_id")
+  /// 1..totalSlots の通し番号（表示・監査用）
+  slotNumber Int        @map("slot_number")
+  /// 事前シャッフル済みの抽選順。CSPRNG による Fisher-Yates で生成する。
+  /// ★この値は API・管理画面へ絶対に露出させない（次に何が出るか分かってしまうため）
+  drawOrder  Int        @map("draw_order")
+  /// 物理個体を割り当てる場合。GenericPrize 使用時は null。
+  inventoryId String?   @unique @map("inventory_id")
+  /// 汎用景品を割り当てる場合。inventoryId と排他（CHECK 制約で保証）。
+  genericPrizeId String? @map("generic_prize_id")
+  tierId     String     @map("tier_id")
+  /// 抽選時に DrawResult / UserPrize へコピーされる交換ポイント
+  exchangePoints Int    @map("exchange_points")
+  status     SlotStatus @default(AVAILABLE)
+  drawnByUserId String? @map("drawn_by_user_id")
+  drawnAt    DateTime?  @map("drawn_at")
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  campaign     OripaCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  tier         OripaPrizeTier @relation(fields: [tierId], references: [id])
+  inventory    Inventory?     @relation(fields: [inventoryId], references: [id])
+  genericPrize GenericPrize?  @relation(fields: [genericPrizeId], references: [id])
+  drawnBy      User?          @relation("SlotDrawnBy", fields: [drawnByUserId], references: [id])
+  drawResult   DrawResult?
+
+  @@unique([campaignId, slotNumber])
+  @@unique([campaignId, drawOrder])
+  /// 抽選時の「AVAILABLE を drawOrder 昇順で n 件」をインデックスだけで解決する
+  @@index([campaignId, status, drawOrder])
+  @@index([tierId, status])
+  @@map("oripa_slots")
+}
+
+/// ユーザーごとの購入口数カウンタ。購入上限を条件付き UPDATE で原子的に強制する。
+model UserCampaignCounter {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  campaignId String   @map("campaign_id")
+  drawnCount Int      @default(0) @map("drawn_count")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign OripaCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, campaignId])
+  @@map("user_campaign_counters")
+}
+
+// ============================================================================
+//  抽選
+// ============================================================================
+
+model DrawTransaction {
+  id               String   @id @default(cuid())
+  userId           String   @map("user_id")
+  campaignId       String   @map("campaign_id")
+  /// 1 または 10
+  drawCount        Int      @map("draw_count")
+  /// 抽選時点の単価（スナップショット）
+  unitPricePoints  Int      @map("unit_price_points")
+  totalPricePoints Int      @map("total_price_points")
+  /// ポイント消費の記帳（1:1）
+  ledgerEntryId    String   @unique @map("ledger_entry_id")
+  idempotencyKeyId String?  @unique @map("idempotency_key_id")
+  clientIp         String?  @map("client_ip")
+  userAgent        String?  @map("user_agent")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user           User             @relation(fields: [userId], references: [id])
+  campaign       OripaCampaign    @relation(fields: [campaignId], references: [id])
+  ledgerEntry    PointLedgerEntry @relation("DrawSpend", fields: [ledgerEntryId], references: [id])
+  idempotencyKey IdempotencyKey?  @relation(fields: [idempotencyKeyId], references: [id])
+  results        DrawResult[]
+
+  @@index([userId, createdAt])
+  @@index([campaignId, createdAt])
+  @@map("draw_transactions")
+}
+
+/// 抽選 1 口分の結果。マスタ変更の影響を受けないよう表示情報をすべてスナップショットする。
+model DrawResult {
+  id                String     @id @default(cuid())
+  drawTransactionId String     @map("draw_transaction_id")
+  /// 10 連の 0..9
+  sequence          Int
+  slotId            String     @unique @map("slot_id")
+  tierId            String     @map("tier_id")
+  // --- 以下すべてスナップショット（要件 8: 後からマスタが変わっても過去に影響させない）---
+  tierCodeSnapshot  String     @map("tier_code_snapshot")
+  tierNameSnapshot  String     @map("tier_name_snapshot")
+  effectTier        EffectTier @map("effect_tier")
+  exchangePoints    Int        @map("exchange_points")
+  cardNameSnapshot  String     @map("card_name_snapshot")
+  cardTitleSnapshot String?    @map("card_title_snapshot")
+  raritySnapshot    String?    @map("rarity_snapshot")
+  imageKeySnapshot  String?    @map("image_key_snapshot")
+  createdAt         DateTime   @default(now()) @map("created_at")
+
+  drawTransaction DrawTransaction @relation(fields: [drawTransactionId], references: [id])
+  slot            OripaSlot       @relation(fields: [slotId], references: [id])
+  tier            OripaPrizeTier  @relation(fields: [tierId], references: [id])
+  userPrize       UserPrize?
+
+  @@unique([drawTransactionId, sequence])
+  @@map("draw_results")
+}
+
+// ============================================================================
+//  当選商品
+// ============================================================================
+
+model UserPrize {
+  id             String      @id @default(cuid())
+  userId         String      @map("user_id")
+  drawResultId   String      @unique @map("draw_result_id")
+  /// 物理個体。GenericPrize 当選時は null。
+  inventoryId    String?     @unique @map("inventory_id")
+  genericPrizeId String?     @map("generic_prize_id")
+  status         PrizeStatus @default(UNDECIDED)
+  /// 抽選時点の交換ポイント（在庫マスタ変更の影響を受けない）
+  exchangePoints Int         @map("exchange_points")
+  // --- 表示用スナップショット ---
+  nameSnapshot     String     @map("name_snapshot")
+  effectTier       EffectTier @map("effect_tier")
+  imageKeySnapshot String?    @map("image_key_snapshot")
+  /// 発送可能か（GenericPrize は不可のことがある）
+  shippable      Boolean     @default(true)
+
+  exchangedAt        DateTime? @map("exchanged_at")
+  exchangeLedgerEntryId String? @unique @map("exchange_ledger_entry_id")
+  shippingRequestedAt DateTime? @map("shipping_requested_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  user          User                  @relation(fields: [userId], references: [id])
+  drawResult    DrawResult            @relation(fields: [drawResultId], references: [id])
+  inventory     Inventory?            @relation(fields: [inventoryId], references: [id])
+  genericPrize  GenericPrize?         @relation(fields: [genericPrizeId], references: [id])
+  /// 取消し済みを含む申請履歴。有効な申請は高々 1 件（部分 UNIQUE インデックスで保証）。
+  shippingItems ShippingRequestItem[]
+
+  @@index([userId, status, createdAt])
+  @@index([status])
+  @@map("user_prizes")
+}
+
+// ============================================================================
+//  発送
+// ============================================================================
+
+model ShippingRequest {
+  id        String         @id @default(cuid())
+  userId    String         @map("user_id")
+  status    ShippingStatus @default(REQUESTED)
+  /// 参照用。表示には下のスナップショットを使う。
+  addressId String?        @map("address_id")
+  // --- 申請時点の配送先スナップショット（住所編集の影響を受けない） ---
+  recipientName String   @map("recipient_name")
+  postalCode    String   @map("postal_code")
+  prefecture    String
+  city          String
+  addressLine1  String   @map("address_line1")
+  addressLine2  String?  @map("address_line2")
+  phoneNumber   String   @map("phone_number")
+
+  carrier        String?
+  trackingNumber String?   @map("tracking_number")
+  shippedAt      DateTime? @map("shipped_at")
+  deliveredAt    DateTime? @map("delivered_at")
+  cancelledAt    DateTime? @map("cancelled_at")
+  cancelReason   String?   @map("cancel_reason")
+  adminNote      String?   @map("admin_note")
+  idempotencyKeyId String? @unique @map("idempotency_key_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  user           User                  @relation(fields: [userId], references: [id])
+  address        Address?              @relation(fields: [addressId], references: [id])
+  idempotencyKey IdempotencyKey?       @relation(fields: [idempotencyKeyId], references: [id])
+  items          ShippingRequestItem[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("shipping_requests")
+}
+
+model ShippingRequestItem {
+  id                String    @id @default(cuid())
+  shippingRequestId String    @map("shipping_request_id")
+  userPrizeId       String    @map("user_prize_id")
+  /// 申請取消し時に設定する。行は物理削除せず履歴として残す。
+  /// 「1 つの当選商品が同時に 2 件の有効な発送申請に含まれない」ことは
+  /// 部分 UNIQUE インデックス（migrations/0002_guards）で保証する。
+  cancelledAt       DateTime? @map("cancelled_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  shippingRequest ShippingRequest @relation(fields: [shippingRequestId], references: [id], onDelete: Cascade)
+  userPrize       UserPrize       @relation(fields: [userPrizeId], references: [id])
+
+  @@index([shippingRequestId])
+  @@index([userPrizeId, cancelledAt])
+  @@map("shipping_request_items")
+}
+
+// ============================================================================
+//  横断（監査 / 冪等性 / 設定）
+// ============================================================================
+
+/// 追記専用の監査ログ。UPDATE / DELETE は DB ロールレベルで禁止する。
+model AuditLog {
+  id         String         @id @default(cuid())
+  actorType  AuditActorType @map("actor_type")
+  actorId    String?        @map("actor_id")
+  /// 'ORIPA_PUBLISH' / 'USER_SUSPEND' / 'POINT_ADJUST' など
+  action     String
+  targetType String?        @map("target_type")
+  targetId   String?        @map("target_id")
+  /// 危険操作では必須（アプリ層で強制）
+  reason     String?
+  /// 変更前後のスナップショット。パスワードハッシュ・トークンは必ずマスクする。
+  before     Json?
+  after      Json?
+  ip         String?
+  userAgent  String?        @map("user_agent")
+  requestId  String?        @map("request_id")
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+/// 冪等性キー。同一トランザクション内で INSERT することで、
+/// 並行する重複リクエストをユニークインデックスでブロックする。
+model IdempotencyKey {
+  id           String           @id @default(cuid())
+  userId       String           @map("user_id")
+  /// 'draw' | 'prize_exchange' | 'shipping_request' | 'test_payment' など
+  scope        String
+  key          String
+  /// 同一キーで異なる本文が来た場合に検出する
+  requestHash  String           @map("request_hash")
+  state        IdempotencyState @default(IN_PROGRESS)
+  responseCode Int?             @map("response_code")
+  responseBody Json?            @map("response_body")
+  expiresAt    DateTime         @map("expires_at")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  drawTransaction  DrawTransaction?
+  payment          PaymentTransaction?
+  shippingRequest  ShippingRequest?
+
+  @@unique([userId, scope, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+/// 運用中に変更しうる設定値（ポイント消費順序など）。
+/// 秘密情報はここに置かない（環境変数を使う）。
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedBy String?  @map("updated_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}

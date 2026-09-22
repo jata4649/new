@@ -1,0 +1,89 @@
+name: oripa-mvp
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: oripa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: oripa
+      POSTGRES_PASSWORD: oripa_dev_password
+      POSTGRES_DB: oripa_dev
+      # 日本語のソート・比較を安定させる
+      LANG: ja_JP.utf8
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8'
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # 初回起動時に実行時ロール（oripa_app）と拡張を作成する
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U oripa -d oripa_dev']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # マイグレーションのシャドウ DB 用。開発時のみ使用する。
+  postgres-shadow:
+    image: postgres:16-alpine
+    container_name: oripa-postgres-shadow
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: oripa
+      POSTGRES_PASSWORD: oripa_dev_password
+      POSTGRES_DB: oripa_shadow
+    ports:
+      - '5433:5432'
+    # シャドウ DB は使い捨て。永続化しない。
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U oripa -d oripa_shadow']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: oripa-redis
+    restart: unless-stopped
+    # Redis はレート制限・キャッシュ専用。永続化しない（落ちても整合性に影響しない設計）。
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: oripa-app
+    # 既定では起動しない（ホストで pnpm dev を動かす方が HMR が速いため）。
+    # コンテナで動かす場合: docker compose --profile app up
+    profiles: ['app']
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://oripa:oripa_dev_password@postgres:5432/oripa_dev?schema=public
+      SHADOW_DATABASE_URL: postgresql://oripa:oripa_dev_password@postgres-shadow:5432/oripa_shadow?schema=public
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '3000:3000'
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

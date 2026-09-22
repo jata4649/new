@@ -1,0 +1,35 @@
+# 依存関係
+node_modules/
+.pnpm-store/
+
+# ビルド成果物
+.next/
+out/
+build/
+next-env.d.ts
+
+# Prisma の生成物（schema から再生成できるためコミットしない）
+src/generated/
+
+# 環境変数（秘密情報。.env.example のみコミットする）
+.env
+.env.local
+.env.*.local
+
+# テスト
+coverage/
+playwright-report/
+test-results/
+.playwright/
+
+# アップロード済みファイル（ローカル開発用）
+storage/
+
+# エディタ・OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.log
+tsconfig.tsbuildinfo
+*.tsbuildinfo
