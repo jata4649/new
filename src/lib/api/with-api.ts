@@ -14,6 +14,9 @@ import {
 import { captureException, logger } from '@/lib/observability/index.ts'
 import { checkRateLimit, type RateLimitRule } from '@/lib/rate-limit/index.ts'
 import { getCurrentSession, type SessionUser } from '@/modules/auth/session.ts'
+
+// セッション解決の実装を登録する（副作用つき import）
+import '@/server/session-bootstrap.ts'
 import type { PrismaTransactionClient } from '@/server/db.ts'
 
 /**
@@ -303,6 +306,36 @@ export function withApi<
       return toErrorResponse(error, meta, route)
     }
   }
+}
+
+/**
+ * 認証必須・冪等性なしのエンドポイント（自分のデータの参照、管理画面の一覧など）。
+ *
+ * withApi との違いは型だけで、パイプラインは同一。
+ * ハンドラが session を非 null で受け取れるため、`ctx.session!` を書かずに済む。
+ */
+export function withAuthedApi<
+  TBodySchema extends z.ZodType | undefined = undefined,
+  TQuerySchema extends z.ZodType | undefined = undefined,
+  TParamsSchema extends z.ZodType | undefined = undefined,
+  TResult = unknown,
+>(
+  options: WithApiOptions<TBodySchema, TQuerySchema, TParamsSchema> & {
+    auth: 'user' | 'admin'
+  },
+  handler: (
+    ctx: AuthedApiContext<Infer<TBodySchema>, Infer<TQuerySchema>, Infer<TParamsSchema>>,
+  ) => Promise<TResult>,
+): RouteHandler {
+  return withApi(options, (ctx) => {
+    // auth が 'user' | 'admin' のとき、resolveSession は必ず非 null を返すか例外を投げる
+    if (!ctx.session) {
+      throw errors.unauthenticated()
+    }
+    return handler(
+      ctx as AuthedApiContext<Infer<TBodySchema>, Infer<TQuerySchema>, Infer<TParamsSchema>>,
+    )
+  })
 }
 
 /**

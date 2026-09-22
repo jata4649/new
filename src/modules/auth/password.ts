@@ -1,5 +1,7 @@
 import { hash, verify } from '@node-rs/argon2'
 
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from './password-policy.ts'
+
 /**
  * パスワードのハッシュ化。
  *
@@ -22,9 +24,7 @@ const ARGON2_OPTIONS = {
   algorithm: 2,
 } as const
 
-/** パスワードの最低要件。Zod スキーマからも参照する。 */
-export const PASSWORD_MIN_LENGTH = 10
-export const PASSWORD_MAX_LENGTH = 128
+export { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH }
 
 export async function hashPassword(plainPassword: string): Promise<string> {
   if (plainPassword.length < PASSWORD_MIN_LENGTH) {

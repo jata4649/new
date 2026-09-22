@@ -22,7 +22,7 @@
 | Phase | 内容                                                                          | 状態    |
 | ----- | ----------------------------------------------------------------------------- | ------- |
 | 1     | 要件整理・アーキテクチャ・Prisma スキーマ・Docker・環境変数・初期セットアップ | ✅ 完了 |
-| 2     | 認証・ユーザー・RBAC・管理画面基盤                                            | 未着手  |
+| 2     | 認証・ユーザー・RBAC・管理画面基盤                                            | ✅ 完了 |
 | 3     | ポイント台帳・ポイントロット・Mock 決済                                       | 未着手  |
 | 4     | カード在庫・オリパ作成・景品ランク・抽選スロット生成                          | 未着手  |
 | 5     | 1 回抽選・10 連抽選・冪等性・排他制御                                         | 未着手  |
@@ -126,7 +126,7 @@ PostgreSQL と Redis をホストに用意し、`.env` の `DATABASE_URL` / `RED
 
 ## 4. ログイン情報
 
-**Phase 1 時点ではログイン画面が未実装**（Phase 2 で実装）。
+ログイン画面は `/login`、新規会員登録は `/signup`。
 seed で作られるアカウントは以下のとおり。
 
 | ロール         | メールアドレス       | パスワード         |
@@ -136,8 +136,11 @@ seed で作られるアカウントは以下のとおり。
 | 一般           | `user2@example.test` | `TestPassword123!` |
 | 一般（停止中） | `user3@example.test` | `TestPassword123!` |
 
-`user3` は停止ユーザーの挙動（抽選・交換・発送申請ができないこと）を
+`user3` は停止ユーザーの挙動（ログインできず、抽選・交換・発送申請も行えないこと）を
 確認するために用意している。
+
+管理者でログインすると、ヘッダーに「管理画面」へのリンクが表示される（`/admin`）。
+一般ユーザーが `/admin` を直接開いてもトップへ戻される（管理画面の存在を隠すため）。
 
 ---
 
@@ -238,6 +241,26 @@ pnpm points:reconcile
 
 Prisma Studio（`pnpm db:studio`）で
 `inventories` に 120 件、`users` に 4 件入っていることを確認できる。
+
+### Phase 2 で確認できること
+
+```bash
+# 未ログインでは 401（内部情報を含まない統一フォーマット）
+curl -u tester:closed_test_password http://localhost:3000/api/me
+# → {"success":false,"error":{"code":"UNAUTHENTICATED","message":"ログインが必要です"},...}
+
+# 認証フローの E2E（ログイン・権限・停止ユーザー・ログアウト）
+pnpm test:e2e
+```
+
+ブラウザでの確認:
+
+1. `/signup` から新規登録する → そのままログイン状態になり `/mypage` へ
+2. `/login` で `admin@example.test` としてログインする → `/admin` が開ける
+3. `/admin/users` から `user1` を開き、理由を入力して「停止する」
+   （確認ダイアログが出る）
+4. 別タブで `user1` としてログインしていた場合、**次の操作で即座に締め出される**
+5. `/admin` のダッシュボードに、行った操作が監査ログとして表示される
 
 ### 1 回抽選の確認方法（Phase 5 で実装）
 
@@ -344,7 +367,7 @@ pnpm points:reconcile  # ポイント台帳の整合性検証
 | `SITE_ACCESS_MODE=closed では Basic 認証の資格情報が必須です` | `SITE_BASIC_AUTH_USER` / `SITE_BASIC_AUTH_PASSWORD` を設定する                                                                                   |
 | `本番既定値のままにはできません`                              | `next start` は `NODE_ENV=production` で動く。`MOCK_PAYMENT_WEBHOOK_SECRET` を変更する                                                           |
 | `POINT_EXPIRY_DAYS_PAID は 180 日以下に`                      | 有償ポイントの有効期限は 6 か月未満に固定している（[理由](./docs/07-point-ledger.md#3-有償ポイントの有効期限を-180-日に固定する理由)）           |
-| `SessionNotImplementedError`                                  | 認証は Phase 2 で実装する。Phase 1 では認証必須 API を呼び出せない                                                                               |
+| `SessionResolverNotConfiguredError`                           | セッション解決が未登録。`@/server/session-bootstrap.ts` を import 済みか確認する（通常は自動で登録される）                                       |
 | `APPEND_ONLY_VIOLATION`                                       | 台帳・監査ログ・抽選履歴は追記専用。訂正は打ち消しの記帳で行う                                                                                   |
 | テストが `"test" が含まれていません` で止まる                 | `TEST_DATABASE_URL` にテスト専用 DB を指定する                                                                                                   |
 | `pnpm build` は通るのに起動しない                             | ビルド時は環境変数の相互依存ルールを検査しない（[理由](./docs/10-known-limitations.md#3-1-next-build-時は環境変数の相互依存ルールを適用しない)） |
