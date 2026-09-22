@@ -81,7 +81,8 @@ test('管理者がログインして管理画面とユーザー一覧を見ら�
   await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible()
   await expect(page.getByText('登録ユーザー数')).toBeVisible()
 
-  await page.goto('/admin/users')
+  // 他のテストが作ったユーザーで 1 ページ目から押し出されるため、検索で特定する
+  await page.goto('/admin/users?q=admin%40example.test')
   await expect(page.getByRole('heading', { name: 'ユーザー管理' })).toBeVisible()
   await expect(page.getByText('admin@example.test')).toBeVisible()
 })

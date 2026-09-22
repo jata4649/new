@@ -31,7 +31,8 @@
     "test:concurrency": "vitest run --project concurrency",
     "test:all": "vitest run",
     "test:e2e": "playwright test",
-    "check": "pnpm typecheck && pnpm lint && pnpm test"
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "points:expire": "tsx scripts/expire-points.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed/index.ts"

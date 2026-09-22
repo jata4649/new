@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 
+import { PointAdjustmentForm } from '@/components/admin/point-adjustment-form.tsx'
 import { UserStatusForm } from '@/components/admin/user-status-form.tsx'
 import { Card, CardTitle } from '@/components/ui/card.tsx'
 import { UserStatusBadge } from '@/components/ui/status-badge.tsx'
@@ -23,6 +24,7 @@ export default async function AdminUserDetailPage({
   const user = await getUserDetail(id)
 
   const canUpdateStatus = hasPermission(session.role, PERMISSIONS.USER_UPDATE_STATUS)
+  const canAdjustPoints = hasPermission(session.role, PERMISSIONS.USER_ADJUST_POINTS)
   const isSelf = user.id === session.id
 
   return (
@@ -129,6 +131,20 @@ export default async function AdminUserDetailPage({
           </Card>
         ) : null}
       </div>
+
+      {canAdjustPoints ? (
+        <section aria-labelledby="points-heading">
+          <h2 id="points-heading" className="text-lg font-bold">
+            ポイント調整
+          </h2>
+          <Card className="mt-3">
+            <PointAdjustmentForm
+              userId={user.id}
+              currentBalance={user.paidBalance + user.freeBalance}
+            />
+          </Card>
+        </section>
+      ) : null}
 
       {canUpdateStatus ? (
         <section aria-labelledby="status-heading">
