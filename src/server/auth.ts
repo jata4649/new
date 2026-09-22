@@ -2,7 +2,7 @@ import NextAuth, { type NextAuthConfig } from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 
 import { serverEnv } from '@/lib/config/env.ts'
-import { logger } from '@/lib/observability/index.ts'
+import { captureException, logger } from '@/lib/observability/index.ts'
 import { authenticate } from '@/modules/auth/service.ts'
 import { loginSchema } from '@/modules/auth/schema.ts'
 
@@ -94,6 +94,34 @@ function buildConfig(): NextAuthConfig {
         },
       }),
     ],
+
+    /**
+     * Auth.js 自身のログ出力を、こちらのロガーへ寄せる。
+     *
+     * 既定では認証失敗（CredentialsSignin）を error として出力するが、
+     * ログインの失敗は通常運用の一部であり異常ではない。
+     * error のまま流すと監視（Phase 8 の Sentry）で誤検知が積み上がるため、
+     * info へ落とす。失敗の記録自体は audit_logs に残している。
+     */
+    logger: {
+      error(error) {
+        // 本番ビルドではクラス名が難読化されるため error.name では判定できない。
+        // Auth.js のエラーは静的な type プロパティ（文字列リテラル）を持つので、
+        // そちらで判定する。
+        const type = (error as { type?: unknown }).type
+        if (type === 'CredentialsSignin') {
+          logger.info('認証に失敗しました（資格情報が一致しません）')
+          return
+        }
+        captureException(error, { route: 'auth.js', authErrorType: type })
+      },
+      warn(code) {
+        logger.warn('Auth.js からの警告', { code })
+      },
+      debug(message) {
+        logger.debug('Auth.js', { message })
+      },
+    },
 
     callbacks: {
       jwt({ token, user }) {

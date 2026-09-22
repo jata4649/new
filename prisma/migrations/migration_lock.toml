@@ -1,0 +1,3 @@
+# このファイルは Prisma Migrate が使用する。
+# 手動で編集しないこと。
+provider = "postgresql"
