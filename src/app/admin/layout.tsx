@@ -19,18 +19,8 @@ import { requireAdmin } from '@/server/guards.ts'
 const NAV_ITEMS: { href: string; label: string; permission: Permission; phase?: string }[] = [
   { href: '/admin', label: 'ダッシュボード', permission: PERMISSIONS.USER_READ },
   { href: '/admin/users', label: 'ユーザー管理', permission: PERMISSIONS.USER_READ },
-  {
-    href: '/admin/inventories',
-    label: '在庫管理',
-    permission: PERMISSIONS.INVENTORY_READ,
-    phase: 'Phase 4',
-  },
-  {
-    href: '/admin/oripas',
-    label: 'オリパ管理',
-    permission: PERMISSIONS.ORIPA_READ,
-    phase: 'Phase 4',
-  },
+  { href: '/admin/inventories', label: '在庫管理', permission: PERMISSIONS.INVENTORY_READ },
+  { href: '/admin/oripas', label: 'オリパ管理', permission: PERMISSIONS.ORIPA_READ },
   {
     href: '/admin/shipping-requests',
     label: '発送管理',

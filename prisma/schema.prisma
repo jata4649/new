@@ -612,6 +612,16 @@ model OripaCampaign {
   slotOrderCommit  String?   @map("slot_order_commit")
   /// 価格・総口数・ランク構成のハッシュ。改変検知用。
   configLockedHash String?   @map("config_locked_hash")
+  /**
+   * コミット＆リビール方式の秘密シード。
+   *
+   * ★このカラムは API・管理画面へ絶対に露出させない。
+   *   公開してよいのは販売終了後（slotOrderRevealedAt を設定したあと）だけ。
+   *   先に漏れると「次に何が出るか」を計算できてしまう。
+   */
+  slotOrderSeed    String?   @map("slot_order_seed")
+  /// シードを公開した日時。これ以降は第三者が順序を検証できる。
+  slotOrderRevealedAt DateTime? @map("slot_order_revealed_at")
 
   suspendedAt   DateTime? @map("suspended_at")
   suspendReason String?   @map("suspend_reason")

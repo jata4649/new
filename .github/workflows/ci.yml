@@ -140,8 +140,8 @@ jobs:
             --exit-code
 
       - name: DB ガードが適用されていることを確認
-        # 追記専用トリガと CHECK 制約はマイグレーションの中核。
-        # 数が合わなければ 0002_guards が正しく流れていない。
+        # 追記専用トリガ・改変防止トリガ・CHECK 制約はマイグレーションの中核。
+        # 数が合わなければ 0002_guards / 0003_commit_reveal が正しく流れていない。
         env:
           PGHOST: localhost
           PGUSER: oripa
@@ -155,6 +155,14 @@ jobs:
           echo "追記専用トリガ: ${TRIGGERS} 件"
           if [ "$TRIGGERS" -ne 5 ]; then
             echo "::error::追記専用トリガが 5 件ではありません（${TRIGGERS} 件）"
+            exit 1
+          fi
+
+          IMMUTABLE=$(psql -tAc \
+            "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%immutable%'")
+          echo "公開後の改変防止トリガ: ${IMMUTABLE} 件"
+          if [ "$IMMUTABLE" -ne 3 ]; then
+            echo "::error::公開後の改変防止トリガが 3 件ではありません（${IMMUTABLE} 件）"
             exit 1
           fi
 

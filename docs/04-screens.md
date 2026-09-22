@@ -9,14 +9,14 @@
 
 ### 公開エリア `(public)`
 
-| 画面                 | パス             | 内容                                                                                        | フェーズ     |
-| -------------------- | ---------------- | ------------------------------------------------------------------------------------------- | ------------ |
-| トップ               | `/`              | サービス紹介、販売中オリパの抜粋                                                            | 1（暫定）/ 4 |
-| オリパ一覧           | `/oripas`        | 販売中・販売前・完売・終了を状態バッジで表示                                                | 4            |
-| オリパ詳細           | `/oripas/[slug]` | 価格 / 総口数 / 残り口数 / 上位景品 / ランク別数量 / 当選確率 / 最低交換ポイント / 販売期間 | 4            |
-| 利用規約             | `/terms`         | —                                                                                           | 8            |
-| プライバシーポリシー | `/privacy`       | —                                                                                           | 8            |
-| 特商法表記           | `/legal`         | 本番化時に内容を確定                                                                        | 8            |
+| 画面                 | パス             | 内容                                                                                        | フェーズ |
+| -------------------- | ---------------- | ------------------------------------------------------------------------------------------- | -------- |
+| トップ               | `/`              | サービス紹介、オリパ一覧への導線                                                            | 1 / 4    |
+| オリパ一覧           | `/oripas`        | 販売中・販売前・完売・終了を状態バッジで表示                                                | 4        |
+| オリパ詳細           | `/oripas/[slug]` | 価格 / 総口数 / 残り口数 / 上位景品 / ランク別数量 / 当選確率 / 最低交換ポイント / 販売期間 | 4        |
+| 利用規約             | `/terms`         | —                                                                                           | 8        |
+| プライバシーポリシー | `/privacy`       | —                                                                                           | 8        |
+| 特商法表記           | `/legal`         | 本番化時に内容を確定                                                                        | 8        |
 
 ### 認証エリア `(auth)`
 
@@ -57,22 +57,30 @@
 
 ## 2. 管理画面 `/admin`
 
-| 画面             | パス                            | 必要権限               | フェーズ |
-| ---------------- | ------------------------------- | ---------------------- | -------- |
-| ダッシュボード   | `/admin`                        | `user:read`            | 2        |
-| ユーザー一覧     | `/admin/users`                  | `user:read`            | 2        |
-| ユーザー詳細     | `/admin/users/[id]`             | `user:read`            | 2        |
-| 在庫一覧         | `/admin/inventories`            | `inventory:read`       | 4        |
-| 在庫登録・編集   | `/admin/inventories/[id]`       | `inventory:write`      | 4        |
-| オリパ一覧       | `/admin/oripas`                 | `oripa:read`           | 4        |
-| オリパ作成・編集 | `/admin/oripas/[id]`            | `oripa:write`          | 4        |
-| 景品割当         | `/admin/oripas/[id]/slots`      | `oripa:write`          | 4        |
-| 公開前プレビュー | `/admin/oripas/[id]/preview`    | `oripa:read`           | 4        |
-| 抽選履歴         | `/admin/draws`                  | `draw:read`            | 5        |
-| 発送申請一覧     | `/admin/shipping-requests`      | `shipping:read`        | 7        |
-| 発送申請詳細     | `/admin/shipping-requests/[id]` | `shipping:update`      | 7        |
-| 監査ログ         | `/admin/audit-logs`             | `audit:read`           | 8        |
-| Mock 決済操作    | `/admin/test-payments`          | `test_payment:operate` | 3        |
+| 画面           | パス                      | 必要権限          | フェーズ |
+| -------------- | ------------------------- | ----------------- | -------- |
+| ダッシュボード | `/admin`                  | `user:read`       | 2        |
+| ユーザー一覧   | `/admin/users`            | `user:read`       | 2        |
+| ユーザー詳細   | `/admin/users/[id]`       | `user:read`       | 2        |
+| 在庫一覧       | `/admin/inventories`      | `inventory:read`  | 4        |
+| 在庫登録       | `/admin/inventories/new`  | `inventory:write` | 4        |
+| 在庫詳細・編集 | `/admin/inventories/[id]` | `inventory:read`  | 4        |
+| オリパ一覧     | `/admin/oripas`           | `oripa:read`      | 4        |
+| オリパ作成     | `/admin/oripas/new`       | `oripa:write`     | 4        |
+| オリパ詳細     | `/admin/oripas/[id]`      | `oripa:read`      | 4        |
+
+オリパ詳細は 1 画面で完結させている（景品割当・公開条件・公開・販売停止）。
+別画面へ分けると「割当は終わったが公開条件を満たしていない」状態が見えにくくなり、
+公開直前まで不足に気付けないため。
+
+公開前プレビューは専用画面を作らず、ユーザー向け詳細（`/oripas/[slug]`）を使う。
+表示ロジックを二重化すると「プレビューでは見えたのに公開後は違う」というズレが生まれる。
+下書きは公開クエリの対象外なので、公開するまでユーザーからは見えない。
+| 抽選履歴 | `/admin/draws` | `draw:read` | 5 |
+| 発送申請一覧 | `/admin/shipping-requests` | `shipping:read` | 7 |
+| 発送申請詳細 | `/admin/shipping-requests/[id]` | `shipping:update` | 7 |
+| 監査ログ | `/admin/audit-logs` | `audit:read` | 8 |
+| Mock 決済操作 | `/admin/test-payments` | `test_payment:operate` | 3 |
 
 ### ダッシュボードの表示項目（MVP は簡易集計）
 

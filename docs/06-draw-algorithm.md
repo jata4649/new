@@ -205,7 +205,7 @@ COMMIT;
 
 ---
 
-## 6. 公開条件（Phase 4 で実装）
+## 6. 公開条件
 
 `ACTIVE` にする前に、以下をすべて満たすことをサーバー側で検証する。
 
@@ -218,6 +218,35 @@ COMMIT;
 - [ ] `sales_end_at > sales_start_at`
 - [ ] 同一物理在庫が重複割当されていない（DB の UNIQUE で担保）
 
-公開時に `published_at` / `published_by` / `slot_order_commit` / `config_locked_hash`
-を記録する。`ACTIVE` 以降は価格・総口数・景品スロット・当選確率を変更できない。
-やむを得ない販売停止は可能だが、理由入力を必須とし `audit_logs` へ記録する。
+公開時に `published_at` / `published_by` / `slot_order_commit` / `slot_order_seed` /
+`config_locked_hash` を記録する。`ACTIVE` 以降は価格・総口数・景品スロット・当選確率を
+変更できない。やむを得ない販売停止は可能だが、理由入力を必須とし `audit_logs` へ記録する。
+
+### 実装の対応
+
+| 内容                         | 実装                                                        |
+| ---------------------------- | ----------------------------------------------------------- |
+| スロット生成・事前シャッフル | `src/modules/oripa/slots.ts` の `generateSlots`             |
+| コミットハッシュの計算       | 同 `buildCommitment`（**保存済みスロットの順序**から計算）  |
+| 公開条件の検証               | `src/modules/oripa/service.ts` の `checkPublishable`        |
+| 公開処理                     | 同 `publishOripa`                                           |
+| 事後検証                     | `src/modules/oripa/slots.ts` の `verifySlotOrderCommitment` |
+
+コミットハッシュを `generateSlots` ではなく公開時に作っているのは、
+下書きを作り直すたびに「公開していないのにコミットした」状態が生まれるのを避けるため。
+また、メモリ上の計画値ではなく DB に保存された順序から計算することで、
+保存に失敗した分がハッシュに含まれるズレを防いでいる。
+
+### 公開後の改変を DB でも拒否する
+
+アプリ層の検証だけでは、管理画面のバグや DB への直接アクセスを防げない。
+`prisma/migrations/20260922000003_commit_reveal` で 3 つのトリガを追加している。
+
+| トリガ                                | 拒否する操作                                                    |
+| ------------------------------------- | --------------------------------------------------------------- |
+| `oripa_campaigns_immutable_trigger`   | 公開済みの価格・総口数・コミットハッシュ・シードの変更          |
+| `oripa_slots_immutable_trigger`       | 公開済みスロットの追加・削除・景品差し替え・`draw_order` の変更 |
+| `oripa_prize_tiers_immutable_trigger` | 公開済みランクの追加・削除・口数変更（＝確率の後出し変更）      |
+
+いずれもメッセージが `CAMPAIGN_IMMUTABLE:` で始まる。
+抽選による `AVAILABLE` → `DRAWN` の遷移だけは許可している。
