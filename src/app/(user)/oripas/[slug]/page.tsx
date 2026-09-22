@@ -95,18 +95,23 @@ export default async function OripaDetailPage({
 
         {drawable ? (
           session ? (
-            <p className="text-base-100 border-base-800 border-t pt-3 text-sm">
-              抽選は Phase 5 で実装します。現時点では確率と景品の確認のみ行えます。
-            </p>
+            <div className="border-base-800 border-t pt-3">
+              <Link
+                href={`/oripas/${oripa.slug}/draw`}
+                className="bg-accent-500 text-base-950 inline-block rounded-lg px-5 py-3 text-sm font-bold"
+              >
+                抽選する
+              </Link>
+            </div>
           ) : (
             <p className="border-base-800 border-t pt-3 text-sm">
               <Link
-                href={`/login?callbackUrl=/oripas/${oripa.slug}`}
+                href={`/login?callbackUrl=/oripas/${oripa.slug}/draw`}
                 className="text-accent-400 underline"
               >
                 ログイン
               </Link>
-              すると抽選に参加できます（抽選機能は Phase 5 で実装します）。
+              すると抽選に参加できます。
             </p>
           )
         ) : null}

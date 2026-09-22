@@ -25,7 +25,7 @@
 | 2     | 認証・ユーザー・RBAC・管理画面基盤                                            | ✅ 完了 |
 | 3     | ポイント台帳・ポイントロット・Mock 決済                                       | ✅ 完了 |
 | 4     | カード在庫・オリパ作成・景品ランク・抽選スロット生成                          | ✅ 完了 |
-| 5     | 1 回抽選・10 連抽選・冪等性・排他制御                                         | 未着手  |
+| 5     | 1 回抽選・10 連抽選・冪等性・排他制御                                         | ✅ 完了 |
 | 6     | 演出・抽選結果・商品一覧・ポイント交換                                        | 未着手  |
 | 7     | 配送先・発送申請・発送管理                                                    | 未着手  |
 | 8     | 監査ログ・セキュリティ・テスト・ドキュメント                                  | 未着手  |
@@ -346,18 +346,57 @@ POINT_EXPIRY_MINUTES_OVERRIDE=1
 決済を成功させてから 1 分後に `pnpm points:expire` を実行すると、
 台帳に `EXPIRE` が記録され、残高が 0 になる。
 
-### 1 回抽選の確認方法（Phase 5 で実装）
+### Phase 5 で確認できること
 
-1. `/oripas` から販売中のオリパを開く
-2. 残り口数と当選確率を確認する
+```bash
+pnpm db:seed && pnpm dev
+```
+
+1. `/mypage/points/purchase` でテストポイントを取得する
+2. `/oripas/sample-light-01` →「抽選する」
 3. 「1 回引く」→ 確認ダイアログで消費ポイントを確認して実行
-4. 演出が再生され、結果が表示される
-5. **演出を途中で閉じても** `/mypage/draws` から結果を確認できる
-6. **リロードしても** 結果は変わらない
-7. ブラウザの開発者ツールで同じリクエストを再送しても、
-   同じ結果が返るだけで二重抽選されない（`Idempotency-Replayed: true`）
+4. `/draws/[id]` に結果が出る。**リロードしても消えない**
+5. `/mypage/draws` に履歴が残る
 
-### 10 連抽選の確認方法（Phase 5 で実装）
+同じ冪等性キーで再送しても二重に引けないことの確認:
+
+```bash
+KEY=$(uuidgen)
+for i in 1 2; do
+  curl -s -u tester:closed_test_password \
+    -b cookie.txt \
+    -H 'Content-Type: application/json' \
+    -H "Idempotency-Key: $KEY" \
+    -D - -o /dev/null \
+    -d '{"drawCount":1}' \
+    http://127.0.0.1:3000/api/oripas/sample-light-01/draw | grep -i idempotency-replayed
+done
+# 1 回目: false / 2 回目: true（ポイントは 1 回ぶんしか減らない）
+```
+
+抽選対象を名指しできないことの確認:
+
+```bash
+# slotId / inventoryId / tierCode を送っても Zod が捨てるため、結果は変わらない
+curl -s ... -d '{"drawCount":1,"slotId":"...","tierCode":"S"}' \
+  http://127.0.0.1:3000/api/oripas/sample-light-01/draw
+```
+
+同時実行の検証はテストで行う。
+
+```bash
+pnpm exec vitest run --project concurrency
+```
+
+### 1 回抽選の内部動作
+
+スロットは公開前に CSPRNG でシャッフル済みなので、抽選は
+「`AVAILABLE` を `draw_order` 昇順で n 件、`FOR UPDATE SKIP LOCKED` で取る」だけ。
+スロット確保・ポイント消費・記録・残り口数の更新はすべて同じトランザクションにある。
+詳細は [`docs/06-draw-algorithm.md`](./docs/06-draw-algorithm.md)。5. **演出を途中で閉じても** `/mypage/draws` から結果を確認できる6. **リロードしても** 結果は変わらない 7. ブラウザの開発者ツールで同じリクエストを再送しても、
+同じ結果が返るだけで二重抽選されない（`Idempotency-Replayed: true`）
+
+### 10 連抽選の確認方法
 
 1. 「10 回引く」を実行する
 2. 10 件の結果が一覧表示される

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 
 import { Card, CardTitle } from '@/components/ui/card.tsx'
 import { UserStatusBadge } from '@/components/ui/status-badge.tsx'
@@ -13,9 +14,8 @@ export const dynamic = 'force-dynamic'
 /**
  * マイページ。
  *
- * Phase 2 では残高と基本情報のみ。
- * ポイント履歴（Phase 3）・抽選履歴（Phase 5）・当選商品（Phase 6）・
- * 発送申請（Phase 7）は各フェーズで追加する。
+ * 残高・基本情報と、各機能への入口。
+ * 当選商品（Phase 6）・発送申請（Phase 7）は各フェーズで追加する。
  */
 export default async function MyPage() {
   const session = await requireUser('/mypage')
@@ -43,8 +43,28 @@ export default async function MyPage() {
             <dd className="font-bold tabular-nums">{formatPoints(profile.points.free)}</dd>
           </div>
         </dl>
-        <p className="text-base-100/70 mt-3 text-xs">
-          ポイントの購入（テスト決済）と履歴表示は Phase 3 で追加します。
+        <p className="mt-3 flex flex-wrap gap-3 text-sm">
+          <Link href="/mypage/points" className="text-accent-400 underline">
+            ポイントの内訳
+          </Link>
+          <Link href="/mypage/points/purchase" className="text-accent-400 underline">
+            テストポイントを取得
+          </Link>
+        </p>
+      </Card>
+
+      <Card>
+        <CardTitle>抽選</CardTitle>
+        <p className="mt-3 flex flex-wrap gap-3 text-sm">
+          <Link href="/oripas" className="text-accent-400 underline">
+            オリパ一覧
+          </Link>
+          <Link href="/mypage/draws" className="text-accent-400 underline">
+            抽選履歴
+          </Link>
+        </p>
+        <p className="text-base-100/70 mt-2 text-xs">
+          当選商品の一覧とポイント交換は Phase 6、発送申請は Phase 7 で追加します。
         </p>
       </Card>
 

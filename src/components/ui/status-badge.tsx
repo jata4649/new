@@ -1,4 +1,9 @@
-import type { CampaignStatus, InventoryStatus, UserStatus } from '@/generated/prisma/enums.ts'
+import type {
+  CampaignStatus,
+  EffectTier,
+  InventoryStatus,
+  UserStatus,
+} from '@/generated/prisma/enums.ts'
 import { cn } from '@/lib/utils.ts'
 import type { PublicSaleState } from '@/modules/oripa/queries.ts'
 
@@ -66,4 +71,23 @@ const INVENTORY_STATUS_LABELS: Record<InventoryStatus, { label: string; classNam
 export function InventoryStatusBadge({ status }: { status: InventoryStatus }) {
   const { label, className } = INVENTORY_STATUS_LABELS[status]
   return <span className={cn(BADGE_BASE, className)}>{label}</span>
+}
+
+const EFFECT_TIER_STYLES: Record<EffectTier, string> = {
+  JACKPOT: 'bg-fuchsia-500/20 text-fuchsia-200',
+  RAINBOW: 'bg-violet-500/20 text-violet-200',
+  GOLD: 'bg-amber-500/20 text-amber-200',
+  BLUE: 'bg-sky-500/20 text-sky-200',
+  NORMAL: 'bg-base-700/40 text-base-100',
+}
+
+/**
+ * 景品ランクのバッジ。
+ *
+ * ランク名（S賞 など）を必ず併記する。色だけで等級を示さないのは
+ * アクセシビリティ要件であると同時に、演出色と景品価値が
+ * 一致しない設定にもできるようにしておくため。
+ */
+export function EffectTierBadge({ tier, label }: { tier: EffectTier; label: string }) {
+  return <span className={cn(BADGE_BASE, EFFECT_TIER_STYLES[tier])}>{label}</span>
 }

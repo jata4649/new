@@ -126,7 +126,7 @@ Auth.js の CSRF トークンに加え、変更系メソッドでは `Origin` �
 | PATCH    | `/api/me`               | 🔒 プロフィール更新                     |
 | GET      | `/api/me/points`        | 🔒 保有ポイント（有償 / 無償 / 期限別） |
 | GET      | `/api/me/point-history` | 🔒 ポイント履歴                         |
-| GET      | `/api/me/draws`         | 🔒 抽選履歴                             |
+| GET      | `/api/me/draws`         | 🔒 抽選履歴（ページング）               |
 | GET      | `/api/me/prizes`        | 🔒 当選商品一覧                         |
 | GET      | `/api/me/shipments`     | 🔒 発送申請一覧                         |
 | GET      | `/api/me/addresses`     | 🔒 配送先一覧                           |
@@ -135,12 +135,12 @@ Auth.js の CSRF トークンに加え、変更系メソッドでは `Origin` �
 
 ### オリパ・抽選（Phase 4〜6）
 
-| メソッド | パス                   | 説明                                                |
-| -------- | ---------------------- | --------------------------------------------------- |
-| GET      | `/api/oripas`          | 一覧（販売中 / 販売前 / 完売 / 終了）               |
-| GET      | `/api/oripas/:slug`    | 詳細（ランク別の口数・確率・残り口数）              |
-| POST     | `/api/oripas/:id/draw` | 🔒 ♻️ 抽選（`drawCount`: 1 または 10）              |
-| GET      | `/api/draws/:id`       | 🔒 抽選結果の再取得（リロード・通信断からの復帰用） |
+| メソッド | パス                     | 説明                                                |
+| -------- | ------------------------ | --------------------------------------------------- |
+| GET      | `/api/oripas`            | 一覧（販売中 / 販売前 / 完売 / 終了）               |
+| GET      | `/api/oripas/:slug`      | 詳細（ランク別の口数・確率・残り口数）              |
+| POST     | `/api/oripas/:slug/draw` | 🔒 ♻️ 抽選（`drawCount`: 1 または 10）              |
+| GET      | `/api/draws/:id`         | 🔒 抽選結果の再取得（リロード・通信断からの復帰用） |
 
 ### 当選商品・発送（Phase 6〜7）
 
@@ -343,3 +343,82 @@ Auth.js の CSRF トークンに加え、変更系メソッドでは `Origin` �
 `WON` / `SHIPPING_REQUESTED` / `SHIPPED` / `EXCHANGED` は抽選・発送・交換の処理が設定する。
 `DAMAGED` / `LOST` へ変更する場合は理由が必須。
 公開済みオリパへ割当済みの在庫は、交換ポイントと状態を変更できない。
+
+### `POST /api/oripas/:slug/draw`（Phase 5）
+
+🔒 ♻️ ログイン必須・冪等性キー必須。レート制限は `draw`（60 回 / 分）。
+
+```jsonc
+// リクエスト
+{
+  "drawCount": 10,
+  // 任意。画面に表示していた 1 口価格。サーバー側と違えば 400 で拒否する。
+  "expectedUnitPricePoints": 100,
+}
+```
+
+**リクエストに指定できるのは口数だけ。** `slotId` / `inventoryId` / `tierCode`
+を受け取る項目はスキーマに存在しない（未知のキーは Zod が捨てる）。
+どのスロットを引くかはサーバーが `draw_order` から決める。
+
+```jsonc
+// 200
+{
+  "success": true,
+  "data": {
+    "drawTransactionId": "...",
+    "campaignName": "サンプル・ライトオリパ",
+    "campaignSlug": "sample-light-01",
+    "drawCount": 10,
+    "unitPricePoints": 100,
+    "totalPricePoints": 1000,
+    "balanceAfter": 2000,
+    "remainingSlots": 180,
+    "prizes": [
+      {
+        "sequence": 0,
+        "userPrizeId": "...",
+        "name": "蒼焔のドラグーン",
+        "tierCode": "B",
+        "tierName": "B賞",
+        "effectTier": "BLUE",
+        "exchangePoints": 12000,
+        "imageKey": "placeholder:SR:120:front",
+        "rarity": "SR",
+        "shippable": true,
+      },
+    ],
+  },
+  "meta": { "requestId": "..." },
+}
+```
+
+レスポンスヘッダ `Idempotency-Replayed` が `true` なら記録済みの結果の再送。
+クライアントはこれを見て演出の再生を抑制できる（Phase 6）。
+
+**応答に含めないもの**: `slotId`、`draw_order`、`slot_order_seed`。
+含まれていないことは統合テストと E2E で応答本文そのものを検査して確認している。
+
+主なエラー:
+
+| コード                    | HTTP | 発生条件                                            |
+| ------------------------- | ---- | --------------------------------------------------- |
+| `CAMPAIGN_NOT_ON_SALE`    | 409  | 下書き・販売前・停止中・完売                        |
+| `CAMPAIGN_OUT_OF_PERIOD`  | 409  | 販売期間外（サーバー時刻で判定）                    |
+| `INSUFFICIENT_SLOTS`      | 409  | 残り口数不足、または全スロットが他の処理中          |
+| `INSUFFICIENT_POINTS`     | 400  | ポイント不足（**この場合も 1 ポイントも減らない**） |
+| `PURCHASE_LIMIT_EXCEEDED` | 409  | 1 ユーザーあたりの購入上限超過                      |
+| `VALIDATION_ERROR`        | 400  | 口数が 1 / 10 以外、または表示価格の不一致          |
+
+### `GET /api/draws/:id`（Phase 5）
+
+🔒 本人の抽選結果のみを返す。他人の ID を指定しても 404
+（ID の存在を推測させないため、「存在しない」と「権限がない」を区別しない）。
+
+リロード・通信断・演出の中断からの復帰口。結果は抽選時に DB へ確定しているため、
+何度読んでも同じ結果が返る。
+
+### `GET /api/me/draws`（Phase 5）
+
+🔒 自分の抽選履歴。`page` / `perPage`（最大 50）。
+各件に最上位の演出ランクと、まだ交換も発送申請もしていない商品の件数を含む。

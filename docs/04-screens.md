@@ -37,7 +37,7 @@
 | ポイント履歴 | `/mypage/points/history`  | 種別・増減・理由・日時                          | 3        |
 | テスト決済   | `/mypage/points/purchase` | Mock 決済でテストポイントを取得                 | 3        |
 | 抽選履歴     | `/mypage/draws`           | 1 回 / 10 連単位。結果の再確認                  | 5        |
-| 抽選結果     | `/draws/[id]`             | 演出の再生とは独立した静的な結果画面            | 6        |
+| 抽選結果     | `/draws/[id]`             | 演出の再生とは独立した静的な結果画面            | 5        |
 | 当選商品一覧 | `/mypage/prizes`          | `UNDECIDED` を優先表示。交換 / 発送申請の導線   | 6        |
 | 発送申請一覧 | `/mypage/shipments`       | ステータス・追跡番号                            | 7        |
 
@@ -57,17 +57,22 @@
 
 ## 2. 管理画面 `/admin`
 
-| 画面           | パス                      | 必要権限          | フェーズ |
-| -------------- | ------------------------- | ----------------- | -------- |
-| ダッシュボード | `/admin`                  | `user:read`       | 2        |
-| ユーザー一覧   | `/admin/users`            | `user:read`       | 2        |
-| ユーザー詳細   | `/admin/users/[id]`       | `user:read`       | 2        |
-| 在庫一覧       | `/admin/inventories`      | `inventory:read`  | 4        |
-| 在庫登録       | `/admin/inventories/new`  | `inventory:write` | 4        |
-| 在庫詳細・編集 | `/admin/inventories/[id]` | `inventory:read`  | 4        |
-| オリパ一覧     | `/admin/oripas`           | `oripa:read`      | 4        |
-| オリパ作成     | `/admin/oripas/new`       | `oripa:write`     | 4        |
-| オリパ詳細     | `/admin/oripas/[id]`      | `oripa:read`      | 4        |
+| 画面           | パス                            | 必要権限               | フェーズ |
+| -------------- | ------------------------------- | ---------------------- | -------- |
+| ダッシュボード | `/admin`                        | `user:read`            | 2        |
+| ユーザー一覧   | `/admin/users`                  | `user:read`            | 2        |
+| ユーザー詳細   | `/admin/users/[id]`             | `user:read`            | 2        |
+| 在庫一覧       | `/admin/inventories`            | `inventory:read`       | 4        |
+| 在庫登録       | `/admin/inventories/new`        | `inventory:write`      | 4        |
+| 在庫詳細・編集 | `/admin/inventories/[id]`       | `inventory:read`       | 4        |
+| オリパ一覧     | `/admin/oripas`                 | `oripa:read`           | 4        |
+| オリパ作成     | `/admin/oripas/new`             | `oripa:write`          | 4        |
+| オリパ詳細     | `/admin/oripas/[id]`            | `oripa:read`           | 4        |
+| 抽選履歴       | `/admin/draws`                  | `draw:read`            | 5        |
+| 発送申請一覧   | `/admin/shipping-requests`      | `shipping:read`        | 7        |
+| 発送申請詳細   | `/admin/shipping-requests/[id]` | `shipping:update`      | 7        |
+| 監査ログ       | `/admin/audit-logs`             | `audit:read`           | 8        |
+| Mock 決済操作  | `/admin/test-payments`          | `test_payment:operate` | 3        |
 
 オリパ詳細は 1 画面で完結させている（景品割当・公開条件・公開・販売停止）。
 別画面へ分けると「割当は終わったが公開条件を満たしていない」状態が見えにくくなり、
@@ -76,11 +81,6 @@
 公開前プレビューは専用画面を作らず、ユーザー向け詳細（`/oripas/[slug]`）を使う。
 表示ロジックを二重化すると「プレビューでは見えたのに公開後は違う」というズレが生まれる。
 下書きは公開クエリの対象外なので、公開するまでユーザーからは見えない。
-| 抽選履歴 | `/admin/draws` | `draw:read` | 5 |
-| 発送申請一覧 | `/admin/shipping-requests` | `shipping:read` | 7 |
-| 発送申請詳細 | `/admin/shipping-requests/[id]` | `shipping:update` | 7 |
-| 監査ログ | `/admin/audit-logs` | `audit:read` | 8 |
-| Mock 決済操作 | `/admin/test-payments` | `test_payment:operate` | 3 |
 
 ### ダッシュボードの表示項目（MVP は簡易集計）
 
