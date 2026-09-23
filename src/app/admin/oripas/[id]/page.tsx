@@ -54,9 +54,23 @@ export default async function AdminOripaDetailPage({
       ])
     : [[], new Map<string, string[]>(), []]
 
-  const expectedValue = ratio(
-    campaign.publishCheck.summary.expectedValueNumerator,
+  /*
+   * 期待値は「交換ポイント合計 ÷ 総口数」、つまり 1 口あたりの期待交換ポイント。
+   * これはポイントであって割合ではないので、百分率として出してはいけない
+   * （8,290 P / 口 を百分率にすると 829,059% という無意味な数字になる）。
+   *
+   * 割合として意味があるのは 1 口価格に対する還元率のほう。
+   * 分母へ価格を掛けるだけで求まるので、整数比のまま保てる。
+   */
+  const expectedPointsNumerator = campaign.publishCheck.summary.expectedValueNumerator
+  const expectedPointsDenominator = Math.max(
+    1,
     campaign.publishCheck.summary.expectedValueDenominator,
+  )
+  const expectedPointsPerSlot = Math.floor(expectedPointsNumerator / expectedPointsDenominator)
+  const returnRate = ratio(
+    expectedPointsNumerator,
+    expectedPointsDenominator * Math.max(1, campaign.pricePoints),
   )
 
   return (
@@ -188,18 +202,27 @@ export default async function AdminOripaDetailPage({
           </table>
         </div>
         <p className="text-base-100 mt-3 text-sm">
-          期待値（交換ポイント合計 ÷ 総口数）: {formatPercent(expectedValue, 1)} 相当 ≒{' '}
-          {Math.floor(
-            campaign.publishCheck.summary.expectedValueNumerator /
-              Math.max(1, campaign.publishCheck.summary.expectedValueDenominator),
-          ).toLocaleString('ja-JP')}{' '}
-          P / 口（1 口 {formatPoints(campaign.pricePoints)}）
+          期待値（交換ポイント合計 ÷ 総口数）:{' '}
+          <span className="tabular-nums">
+            {expectedPointsPerSlot.toLocaleString('ja-JP')} P / 口
+          </span>
+          （1 口 {formatPoints(campaign.pricePoints)} に対する還元率{' '}
+          <span className="tabular-nums">{formatPercent(returnRate, 1)}</span>）
         </p>
       </Card>
 
       <Card>
-        <CardTitle>公開条件</CardTitle>
-        {campaign.publishCheck.publishable ? (
+        <CardTitle>{isDraft ? '公開条件' : '販売の操作'}</CardTitle>
+        {/*
+          公開条件のチェックリストは下書きのときだけ意味がある。
+          公開済みのオリパへ出すと「公開できるのは下書きのときだけです」が
+          未達条件として並び、あたかも問題があるように読めてしまう。
+        */}
+        {!isDraft ? (
+          <Alert tone="info" className="mt-3">
+            公開済みです。公開条件の確認は下書きのときだけ行います。
+          </Alert>
+        ) : campaign.publishCheck.publishable ? (
           <Alert tone="success" className="mt-3">
             すべての公開条件を満たしています。
           </Alert>

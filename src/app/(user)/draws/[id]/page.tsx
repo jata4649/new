@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
+import { PrizeThumb } from '@/components/prizes/prize-thumb.tsx'
 import { Alert } from '@/components/ui/alert.tsx'
 import { Card } from '@/components/ui/card.tsx'
 import { EffectTierBadge } from '@/components/ui/status-badge.tsx'
@@ -94,16 +95,11 @@ export default async function DrawResultPage({ params }: { params: Promise<{ id:
           {draw.results.map((result) => (
             <li key={result.sequence}>
               <Card className="h-full space-y-2 p-3">
-                {result.imageKey ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- 動的生成 SVG のため最適化不要
-                  <img
-                    src={`/api/placeholder/${encodeURIComponent(result.imageKey)}`}
-                    alt=""
-                    width={120}
-                    height={168}
-                    className="w-full rounded-lg"
-                  />
-                ) : null}
+                <PrizeThumb
+                  imageKey={result.imageKey}
+                  effectTier={result.effectTier}
+                  tierName={result.tierName}
+                />
                 <EffectTierBadge tier={result.effectTier} label={result.tierName} />
                 <p className="text-sm font-bold">{result.name}</p>
                 {result.rarity ? (

@@ -1,7 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 
+import { PrizeThumb } from '@/components/prizes/prize-thumb.tsx'
 import type { EffectTier } from '@/generated/prisma/enums.ts'
 import { strongestTier, TIER_PRESENTATION } from '@/lib/effects/tiers.ts'
 import { cn } from '@/lib/utils.ts'
@@ -206,19 +208,40 @@ export function DrawEffect({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [skip])
 
+  // --- 演出中は背面をスクロールさせない ---
+  useEffect(() => {
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previous
+    }
+  }, [])
+
   const allRevealed = revealed >= prizes.length
 
   function toggleSound() {
     setSoundPreference(!soundOn)
   }
 
-  return (
+  // サーバー描画時は何も出さない（この演出は抽選後にしか現れない）
+  if (typeof document === 'undefined') return null
+
+  /*
+   * body へポータルで出す。
+   * 呼び出し側の中に置くと、親のレイアウト用ユーティリティが
+   * このオーバーレイにも効いてしまう。実際に space-y-4 の親が
+   * margin-bottom: 16px を付けており、inset-0 の高さが 16px 足りず、
+   * 画面下端に背面の画面が覗いていた。
+   */
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
       aria-label="抽選演出"
       className={cn(
-        'bg-base-950/95 fixed inset-0 z-50 flex flex-col overflow-y-auto p-4',
+        // 背景は完全に不透明にする。わずかでも透かすと、暗い配色では
+        // 下の画面の白い文字が抜けてきて演出の上に重なってしまう。
+        'bg-base-950 fixed inset-0 z-50 flex flex-col overflow-y-auto p-4',
         topTier === 'JACKPOT' && !reducedMotion ? 'gacha-shake' : undefined,
       )}
     >
@@ -269,16 +292,11 @@ export function DrawEffect({
 
                   {isOpen ? (
                     <>
-                      {prize.imageKey ? (
-                        // eslint-disable-next-line @next/next/no-img-element -- 動的生成 SVG のため最適化不要
-                        <img
-                          src={`/api/placeholder/${encodeURIComponent(prize.imageKey)}`}
-                          alt=""
-                          width={120}
-                          height={168}
-                          className="w-full rounded-lg"
-                        />
-                      ) : null}
+                      <PrizeThumb
+                        imageKey={prize.imageKey}
+                        effectTier={prize.effectTier}
+                        tierName={prize.tierName}
+                      />
                       <p className="mt-2 text-sm font-bold">{prize.name}</p>
                       <p className="text-xs" style={{ color: presentation.colorVar }}>
                         {prize.tierName}
@@ -306,6 +324,7 @@ export function DrawEffect({
           演出は結果の表示方法にすぎません。閉じても結果は失われず、抽選履歴から確認できます。
         </p>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
