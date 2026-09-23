@@ -3,6 +3,7 @@ import type {
   EffectTier,
   InventoryStatus,
   PrizeStatus,
+  ShippingStatus,
   UserStatus,
 } from '@/generated/prisma/enums.ts'
 import { cn } from '@/lib/utils.ts'
@@ -103,5 +104,26 @@ const PRIZE_STATUS_LABELS: Record<PrizeStatus, { label: string; className: strin
 
 export function PrizeStatusBadge({ status }: { status: PrizeStatus }) {
   const { label, className } = PRIZE_STATUS_LABELS[status]
+  return <span className={cn(BADGE_BASE, className)}>{label}</span>
+}
+
+/**
+ * 発送状態。
+ *
+ * 申請直後から配達完了までを 1 本の流れとして色で示す。
+ * 「今どこまで進んでいるか」が一覧で分かることを優先し、
+ * 取消しだけを別系統の色にする。
+ */
+const SHIPPING_STATUS_LABELS: Record<ShippingStatus, { label: string; className: string }> = {
+  REQUESTED: { label: '申請受付', className: 'bg-amber-500/15 text-amber-300' },
+  CHECKING: { label: '検品中', className: 'bg-sky-500/15 text-sky-300' },
+  PACKING: { label: '梱包中', className: 'bg-sky-500/15 text-sky-300' },
+  SHIPPED: { label: '発送済み', className: 'bg-emerald-500/15 text-emerald-300' },
+  DELIVERED: { label: '配達完了', className: 'bg-emerald-500/15 text-emerald-300' },
+  CANCELLED: { label: '取消済み', className: 'bg-red-500/15 text-red-300' },
+}
+
+export function ShippingStatusBadge({ status }: { status: ShippingStatus }) {
+  const { label, className } = SHIPPING_STATUS_LABELS[status]
   return <span className={cn(BADGE_BASE, className)}>{label}</span>
 }

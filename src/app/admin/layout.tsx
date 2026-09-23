@@ -26,7 +26,6 @@ const NAV_ITEMS: { href: string; label: string; permission: Permission; phase?: 
     href: '/admin/shipping-requests',
     label: '発送管理',
     permission: PERMISSIONS.SHIPPING_READ,
-    phase: 'Phase 7',
   },
   {
     href: '/admin/audit-logs',

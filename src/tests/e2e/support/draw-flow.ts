@@ -11,6 +11,15 @@ import { expect, type Page } from '@playwright/test'
 
 /** E2E が消費してよい専用オリパ（3,000 口・1 口 100 P） */
 export const DRAW_POOL_SLUG = 'e2e-draw-pool'
+/**
+ * 発送 E2E 専用オリパ（3,000 口・1 口 100 P）。
+ *
+ * DRAW_POOL_SLUG の景品はすべて「発送の対象外」なので、
+ * 発送申請を試すときはこちらを引く。どちらも汎用景品なので
+ * 物理在庫を消費せず、何度流しても枯れない。
+ */
+export const SHIP_POOL_SLUG = 'e2e-ship-pool'
+export const SHIP_POOL_NAME = 'E2E テスト用オリパ（発送）'
 export const DRAW_POOL_NAME = 'E2E テスト用オリパ（大容量）'
 /** 専用オリパの 1 口価格 */
 export const DRAW_POOL_UNIT_PRICE = 100

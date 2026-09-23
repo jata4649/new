@@ -221,6 +221,35 @@ const CAMPAIGN_PLANS: CampaignPlan[] = [
     ],
   },
   {
+    /*
+     * 発送 E2E 専用のプール（Phase 7）。
+     *
+     * e2e-draw-pool は景品がすべて「発送の対象外」なので、
+     * そこから引いても発送申請の導線を一度も通れない。
+     * 発送できる汎用景品だけで構成した別のプールを用意する。
+     *
+     * 汎用景品なので物理在庫を消費せず、何度流しても枯れない。
+     */
+    slug: 'e2e-ship-pool',
+    name: 'E2E テスト用オリパ（発送）',
+    description: 'E2E テストで発送申請を確認するためのオリパです。景品はすべて発送対象です。',
+    pricePoints: 100,
+    totalSlots: 3_000,
+    perUserLimit: null,
+    startOffset: -1 * HOUR,
+    endOffset: 365 * DAY,
+    tiers: [
+      {
+        code: 'A',
+        name: 'A賞',
+        effectTier: EffectTier.GOLD,
+        slotCount: 3_000,
+        inventoryCount: 0,
+        genericPrizeCode: 'GENERIC-SHIPPABLE-SAMPLE',
+      },
+    ],
+  },
+  {
     slug: 'sample-scheduled-01',
     name: 'サンプル・販売前オリパ',
     description: '販売開始前の表示確認用。開始日時になるまで抽選できません。',
@@ -323,6 +352,22 @@ export const GENERIC_PRIZES = [
     description: '物理カードの代わりにポイントへ交換できる景品です。発送の対象外です。',
     exchangePoints: 1_000,
     shippable: false,
+  },
+  /*
+   * 発送できる汎用景品。
+   *
+   * 物理カードは 1 枚 1 行で有限なので、発送の E2E が流れるたびに
+   * SHIPPED になって減っていく。汎用景品なら同じ 1 行で何口でも賄えるため、
+   * 何度流しても枯れない。
+   * 実運用でも「在庫無制限のノベルティを発送する」はありうる形なので、
+   * テスト専用の抜け道ではない。
+   */
+  {
+    code: 'GENERIC-SHIPPABLE-SAMPLE',
+    name: '発送対象サンプルグッズ',
+    description: '発送の動作確認に使う架空のノベルティです。ポイント交換も発送も選べます。',
+    exchangePoints: 500,
+    shippable: true,
   },
 ] as const
 

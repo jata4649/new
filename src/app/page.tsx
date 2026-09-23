@@ -13,9 +13,9 @@ export default function HomePage() {
     { id: 2, title: '認証・ユーザー・RBAC・管理画面基盤', done: true },
     { id: 3, title: 'ポイント台帳・ロット・Mock 決済', done: true },
     { id: 4, title: 'カード在庫・オリパ作成・抽選スロット生成', done: true },
-    { id: 5, title: '1 回抽選・10 連抽選・冪等性・排他制御', done: false },
-    { id: 6, title: '演出・抽選結果・商品一覧・ポイント交換', done: false },
-    { id: 7, title: '配送先・発送申請・発送管理', done: false },
+    { id: 5, title: '1 回抽選・10 連抽選・冪等性・排他制御', done: true },
+    { id: 6, title: '演出・抽選結果・商品一覧・ポイント交換', done: true },
+    { id: 7, title: '配送先・発送申請・発送管理', done: true },
     { id: 8, title: '監査ログ・セキュリティ・テスト・ドキュメント', done: false },
   ]
 

@@ -67,8 +67,16 @@ export default async function MyPage() {
           <Link href="/mypage/prizes" className="text-accent-400 underline">
             当選商品
           </Link>
+          <Link href="/mypage/shipments" className="text-accent-400 underline">
+            発送申請
+          </Link>
+          <Link href="/mypage/addresses" className="text-accent-400 underline">
+            配送先
+          </Link>
         </p>
-        <p className="text-base-100/70 mt-2 text-xs">発送申請は Phase 7 で追加します。</p>
+        <p className="text-base-100/70 mt-2 text-xs">
+          当選した商品はポイント交換か発送申請を選べます。発送には配送先の登録が必要です。
+        </p>
       </Card>
 
       <Card>

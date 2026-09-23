@@ -3,11 +3,13 @@ import Link from 'next/link'
 
 import { ExchangeNoticeRegion } from '@/components/prizes/exchange-notice.tsx'
 import { PrizeExchangeButton } from '@/components/prizes/prize-exchange-button.tsx'
+import { ShippingRequestPanel } from '@/components/shipping/shipping-request-panel.tsx'
 import { Alert } from '@/components/ui/alert.tsx'
 import { Card } from '@/components/ui/card.tsx'
 import { EffectTierBadge, PrizeStatusBadge } from '@/components/ui/status-badge.tsx'
 import { formatDateTimeJst } from '@/lib/datetime/index.ts'
 import { formatPoints } from '@/lib/money/points.ts'
+import { listAddresses } from '@/modules/addresses/queries.ts'
 import { listUserPrizes } from '@/modules/prizes/queries.ts'
 import { prizeListQuerySchema } from '@/modules/prizes/schema.ts'
 import { requireUser } from '@/server/guards.ts'
@@ -43,7 +45,30 @@ export default async function PrizesPage({
   const parsed = prizeListQuerySchema.safeParse(raw)
   const query = parsed.success ? parsed.data : prizeListQuerySchema.parse({})
 
-  const result = await listUserPrizes(session.id, query)
+  const [result, addresses] = await Promise.all([
+    listUserPrizes(session.id, query),
+    listAddresses(session.id),
+  ])
+
+  /*
+   * 発送申請の候補。
+   *
+   * 絞り込みの結果ではなく「未選択かつ発送可能」を毎回引き直す。
+   * 「ポイント交換済み」で絞り込んでいるときに申請パネルが空になると、
+   * 申請できないのか候補が無いのか分からなくなるため。
+   */
+  const shippable = await listUserPrizes(session.id, {
+    page: 1,
+    perPage: 100,
+    status: 'UNDECIDED',
+  })
+  const shippablePrizes = shippable.items
+    .filter((prize) => prize.shippable)
+    .map((prize) => ({
+      id: prize.id,
+      name: prize.name,
+      exchangePoints: prize.exchangePoints,
+    }))
 
   return (
     <div className="space-y-6">
@@ -51,6 +76,12 @@ export default async function PrizesPage({
         <h1 className="text-xl font-bold">当選商品</h1>
         <Link href="/mypage/draws" className="text-accent-400 text-sm underline">
           抽選履歴
+        </Link>
+        <Link href="/mypage/shipments" className="text-accent-400 text-sm underline">
+          発送申請
+        </Link>
+        <Link href="/mypage/addresses" className="text-accent-400 text-sm underline">
+          配送先
         </Link>
       </div>
 
@@ -63,6 +94,8 @@ export default async function PrizesPage({
           ポイント交換または発送申請を選んでください。
         </Alert>
       ) : null}
+
+      <ShippingRequestPanel prizes={shippablePrizes} addresses={addresses} />
 
       <form method="get" className="flex flex-wrap gap-2">
         <label htmlFor="status" className="sr-only">
@@ -139,7 +172,7 @@ export default async function PrizesPage({
                       />
                       <p className="text-base-100/70 text-xs">
                         {prize.shippable
-                          ? '発送申請は Phase 7 で追加します。'
+                          ? '発送を希望する場合は、上の「発送申請」からまとめて申請してください。'
                           : 'この商品は発送の対象外です（ポイント交換のみ）。'}
                       </p>
                     </div>

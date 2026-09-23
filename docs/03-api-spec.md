@@ -38,26 +38,29 @@
 
 `src/lib/api/errors.ts` の `ERROR_CODES` が真実。主なもの:
 
-| コード                     | HTTP | 意味                                   |
-| -------------------------- | ---- | -------------------------------------- |
-| `UNAUTHENTICATED`          | 401  | 未ログイン                             |
-| `SESSION_REVOKED`          | 401  | セッションが失効した                   |
-| `FORBIDDEN`                | 403  | 権限不足                               |
-| `USER_SUSPENDED`           | 403  | アカウント停止中                       |
-| `VALIDATION_ERROR`         | 400  | 入力値が不正                           |
-| `NOT_FOUND`                | 404  | 対象が存在しない                       |
-| `INSUFFICIENT_POINTS`      | 400  | ポイント不足                           |
-| `CAMPAIGN_NOT_ON_SALE`     | 409  | 販売していない                         |
-| `CAMPAIGN_OUT_OF_PERIOD`   | 409  | 販売期間外                             |
-| `INSUFFICIENT_SLOTS`       | 409  | 残り口数不足                           |
-| `PURCHASE_LIMIT_EXCEEDED`  | 409  | 購入上限超過                           |
-| `PRIZE_NOT_UNDECIDED`      | 409  | すでに交換・申請済み                   |
-| `PRIZE_ALREADY_REQUESTED`  | 409  | 発送申請中                             |
-| `IDEMPOTENCY_KEY_REQUIRED` | 400  | `Idempotency-Key` ヘッダが無い         |
-| `IDEMPOTENCY_KEY_CONFLICT` | 409  | 同じキーで異なる内容                   |
-| `REQUEST_IN_PROGRESS`      | 409  | 同一リクエストを処理中                 |
-| `RATE_LIMITED`             | 429  | レート制限（`Retry-After` ヘッダあり） |
-| `INTERNAL_ERROR`           | 500  | 想定外のエラー                         |
+| コード                            | HTTP | 意味                                   |
+| --------------------------------- | ---- | -------------------------------------- |
+| `UNAUTHENTICATED`                 | 401  | 未ログイン                             |
+| `SESSION_REVOKED`                 | 401  | セッションが失効した                   |
+| `FORBIDDEN`                       | 403  | 権限不足                               |
+| `USER_SUSPENDED`                  | 403  | アカウント停止中                       |
+| `VALIDATION_ERROR`                | 400  | 入力値が不正                           |
+| `NOT_FOUND`                       | 404  | 対象が存在しない                       |
+| `INSUFFICIENT_POINTS`             | 400  | ポイント不足                           |
+| `CAMPAIGN_NOT_ON_SALE`            | 409  | 販売していない                         |
+| `CAMPAIGN_OUT_OF_PERIOD`          | 409  | 販売期間外                             |
+| `INSUFFICIENT_SLOTS`              | 409  | 残り口数不足                           |
+| `PURCHASE_LIMIT_EXCEEDED`         | 409  | 購入上限超過                           |
+| `PRIZE_NOT_UNDECIDED`             | 409  | すでに交換・申請済み                   |
+| `PRIZE_ALREADY_REQUESTED`         | 409  | 発送申請中                             |
+| `PRIZE_NOT_SHIPPABLE`             | 409  | 発送の対象外の景品                     |
+| `SHIPPING_NOT_CANCELLABLE`        | 409  | 発送準備に入っており取り消せない       |
+| `SHIPPING_TRANSITION_NOT_ALLOWED` | 409  | 許可されていない発送状態の変更         |
+| `IDEMPOTENCY_KEY_REQUIRED`        | 400  | `Idempotency-Key` ヘッダが無い         |
+| `IDEMPOTENCY_KEY_CONFLICT`        | 409  | 同じキーで異なる内容                   |
+| `REQUEST_IN_PROGRESS`             | 409  | 同一リクエストを処理中                 |
+| `RATE_LIMITED`                    | 429  | レート制限（`Retry-After` ヘッダあり） |
+| `INTERNAL_ERROR`                  | 500  | 想定外のエラー                         |
 
 ### 認証
 
@@ -131,7 +134,8 @@ Auth.js の CSRF トークンに加え、変更系メソッドでは `Origin` �
 | GET      | `/api/me/shipments`     | 🔒 発送申請一覧                         |
 | GET      | `/api/me/addresses`     | 🔒 配送先一覧                           |
 | POST     | `/api/me/addresses`     | 🔒 配送先登録                           |
-| PATCH    | `/api/me/addresses/:id` | 🔒 配送先更新                           |
+| PATCH    | `/api/me/addresses/:id` | 🔒 ♻️ 配送先更新                        |
+| DELETE   | `/api/me/addresses/:id` | 🔒 ♻️ 配送先削除（論理削除）            |
 
 ### オリパ・抽選（Phase 4〜6）
 
@@ -162,27 +166,28 @@ Auth.js の CSRF トークンに加え、変更系メソッドでは `Origin` �
 
 ### 管理（Phase 2〜7）
 
-| メソッド | パス                                     | 必要権限                              |
-| -------- | ---------------------------------------- | ------------------------------------- |
-| GET      | `/api/admin/dashboard`                   | `user:read`                           |
-| GET      | `/api/admin/users`                       | `user:read`                           |
-| GET      | `/api/admin/users/:id`                   | `user:read`                           |
-| PATCH    | `/api/admin/users/:id/status`            | `user:update_status`（理由必須）      |
-| POST     | `/api/admin/users/:id/point-adjustments` | `user:adjust_points`（理由必須）      |
-| GET      | `/api/admin/inventories`                 | `inventory:read`                      |
-| POST     | `/api/admin/inventories`                 | `inventory:write`                     |
-| PATCH    | `/api/admin/inventories/:id`             | `inventory:write`                     |
-| GET      | `/api/admin/oripas`                      | `oripa:read`                          |
-| POST     | `/api/admin/oripas`                      | `oripa:write`                         |
-| PATCH    | `/api/admin/oripas/:id`                  | `oripa:write`（DRAFT のみ）           |
-| POST     | `/api/admin/oripas/:id/slots`            | `oripa:write`（スロット生成）         |
-| POST     | `/api/admin/oripas/:id/publish`          | `oripa:publish`                       |
-| POST     | `/api/admin/oripas/:id/suspend`          | `oripa:suspend`（理由必須）           |
-| DELETE   | `/api/admin/oripas/:id/suspend`          | `oripa:suspend`（販売再開・理由必須） |
-| GET      | `/api/admin/draws`                       | `draw:read`                           |
-| GET      | `/api/admin/shipping-requests`           | `shipping:read`                       |
-| PATCH    | `/api/admin/shipping-requests/:id`       | `shipping:update`                     |
-| GET      | `/api/admin/audit-logs`                  | `audit:read`                          |
+| メソッド | パス                                      | 必要権限                              |
+| -------- | ----------------------------------------- | ------------------------------------- |
+| GET      | `/api/admin/dashboard`                    | `user:read`                           |
+| GET      | `/api/admin/users`                        | `user:read`                           |
+| GET      | `/api/admin/users/:id`                    | `user:read`                           |
+| PATCH    | `/api/admin/users/:id/status`             | `user:update_status`（理由必須）      |
+| POST     | `/api/admin/users/:id/point-adjustments`  | `user:adjust_points`（理由必須）      |
+| GET      | `/api/admin/inventories`                  | `inventory:read`                      |
+| POST     | `/api/admin/inventories`                  | `inventory:write`                     |
+| PATCH    | `/api/admin/inventories/:id`              | `inventory:write`                     |
+| GET      | `/api/admin/oripas`                       | `oripa:read`                          |
+| POST     | `/api/admin/oripas`                       | `oripa:write`                         |
+| PATCH    | `/api/admin/oripas/:id`                   | `oripa:write`（DRAFT のみ）           |
+| POST     | `/api/admin/oripas/:id/slots`             | `oripa:write`（スロット生成）         |
+| POST     | `/api/admin/oripas/:id/publish`           | `oripa:publish`                       |
+| POST     | `/api/admin/oripas/:id/suspend`           | `oripa:suspend`（理由必須）           |
+| DELETE   | `/api/admin/oripas/:id/suspend`           | `oripa:suspend`（販売再開・理由必須） |
+| GET      | `/api/admin/draws`                        | `draw:read`                           |
+| GET      | `/api/admin/shipping-requests`            | `shipping:read`                       |
+| PATCH    | `/api/admin/shipping-requests/:id`        | `shipping:update`                     |
+| POST     | `/api/admin/shipping-requests/:id/cancel` | `shipping:update`                     |
+| GET      | `/api/admin/audit-logs`                   | `audit:read`                          |
 
 ---
 
