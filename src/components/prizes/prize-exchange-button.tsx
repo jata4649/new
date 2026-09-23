@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
-import { Alert } from '@/components/ui/alert.tsx'
+import { publishExchangeNotice } from '@/components/prizes/exchange-notice.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { postJson } from '@/lib/http/client.ts'
 
@@ -20,6 +20,10 @@ import { postJson } from '@/lib/http/client.ts'
  * ■ 二重実行の防止
  *   送信中はボタンを無効化するが、保証は冪等性キー（postJson が毎回付ける）と
  *   サーバー側の条件付き UPDATE が行う。
+ *
+ * ■ 結果の表示
+ *   交換が成功するとこのボタン自体が描画されなくなる（商品が未選択でなくなるため）。
+ *   結果をここで持つと道連れで消えるので、一覧の外にある通知領域へ渡す。
  */
 
 interface ExchangeSuccess {
@@ -40,8 +44,6 @@ export function PrizeExchangeButton({
   disabled?: boolean
 }) {
   const router = useRouter()
-  const [error, setError] = useState<string | undefined>()
-  const [message, setMessage] = useState<string | undefined>()
   const [isPending, setIsPending] = useState(false)
 
   async function handleExchange() {
@@ -56,8 +58,7 @@ export function PrizeExchangeButton({
     )
     if (!confirmed) return
 
-    setError(undefined)
-    setMessage(undefined)
+    publishExchangeNotice(null)
     setIsPending(true)
 
     try {
@@ -68,16 +69,18 @@ export function PrizeExchangeButton({
       )
 
       if (!result.ok) {
-        setError(result.message)
+        publishExchangeNotice({ tone: 'error', text: result.message })
         // 状態が変わっている可能性があるので表示を更新する
         router.refresh()
         return
       }
 
-      setMessage(
-        `${result.data.grantedPoints.toLocaleString('ja-JP')} P を付与しました` +
+      publishExchangeNotice({
+        tone: 'success',
+        text:
+          `${result.data.grantedPoints.toLocaleString('ja-JP')} P を付与しました` +
           `（残高: ${result.data.balanceAfter.toLocaleString('ja-JP')} P）`,
-      )
+      })
       router.refresh()
     } finally {
       setIsPending(false)
@@ -86,9 +89,6 @@ export function PrizeExchangeButton({
 
   return (
     <div className="space-y-2">
-      {error ? <Alert tone="error">{error}</Alert> : null}
-      {message ? <Alert tone="success">{message}</Alert> : null}
-
       <Button
         type="button"
         variant="secondary"

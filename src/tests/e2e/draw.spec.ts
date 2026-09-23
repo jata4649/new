@@ -1,7 +1,15 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import {
+  completeDrawEffect,
+  drawEffect,
+  DRAW_POOL_NAME,
+  DRAW_POOL_SLUG,
+  DRAW_POOL_UNIT_PRICE,
+} from './support/draw-flow.ts'
+
 /**
- * 抽選の E2E（Phase 5）。
+ * 抽選の E2E（Phase 5・Phase 6 の演出に対応）。
  *
  * 前提: `pnpm db:seed` 済みであること。
  *
@@ -9,6 +17,9 @@ import { expect, test, type Page } from '@playwright/test'
  * 表示確認用の sample-* を使うと、何度か流すうちに完売して
  * 全テストが「残り口数が足りません」で落ちてしまう。
  * 専用プールでもいずれ枯れるので、その場合は `pnpm db:reset` で作り直す。
+ *
+ * 画面から引いた場合は演出を挟むため、結果画面へは
+ * completeDrawEffect() を通って進む（API を直接叩く場合は演出を経由しない）。
  *
  * ユーザーは毎回新規登録し、ポイントもその場で取得する
  * （seed ユーザーを共有すると、先に実行したテストの残高に影響される）。
@@ -19,9 +30,8 @@ import { expect, test, type Page } from '@playwright/test'
  */
 
 const PASSWORD = 'E2eDrawPassword1'
-const TARGET_SLUG = 'e2e-draw-pool'
-/** E2E 専用オリパの 1 口価格 */
-const UNIT_PRICE = 100
+const TARGET_SLUG = DRAW_POOL_SLUG
+const UNIT_PRICE = DRAW_POOL_UNIT_PRICE
 
 function uniqueEmail(): string {
   return `e2e-draw-${Date.now()}-${Math.floor(Math.random() * 10_000)}@example.test`
@@ -58,14 +68,12 @@ test.describe('抽選の実行', () => {
     await chargePoints(page, 1_000)
 
     await page.goto(`/oripas/${TARGET_SLUG}/draw`)
-    await expect(page.getByRole('heading', { level: 1 })).toContainText(
-      'E2E テスト用オリパ（大容量）',
-    )
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(DRAW_POOL_NAME)
 
     page.once('dialog', (dialog) => void dialog.accept())
     await page.getByRole('button', { name: '1 回引く' }).click()
 
-    await expect(page).toHaveURL(/\/draws\/[^/]+$/)
+    await completeDrawEffect(page, 1)
     await expect(page.getByRole('heading', { name: '抽選結果', level: 1 })).toBeVisible()
     await expect(page.getByRole('listitem')).toHaveCount(1)
 
@@ -84,7 +92,7 @@ test.describe('抽選の実行', () => {
     page.once('dialog', (dialog) => void dialog.accept())
     await page.getByRole('button', { name: '10 連で引く' }).click()
 
-    await expect(page).toHaveURL(/\/draws\/[^/]+$/)
+    await completeDrawEffect(page, 10)
     await expect(page.getByRole('listitem')).toHaveCount(10)
   })
 
@@ -99,7 +107,8 @@ test.describe('抽選の実行', () => {
     page.once('dialog', (dialog) => void dialog.dismiss())
     await page.getByRole('button', { name: '1 回引く' }).click()
 
-    // 画面遷移せず、履歴にも残らない
+    // 演出も出ず、画面遷移もせず、履歴にも残らない
+    await expect(drawEffect(page)).toHaveCount(0)
     await expect(page).toHaveURL(/\/draw$/)
     await page.goto('/mypage/draws')
     await expect(page.getByText('まだ抽選していません。')).toBeVisible()
@@ -114,14 +123,14 @@ test.describe('抽選の実行', () => {
     await page.goto(`/oripas/${TARGET_SLUG}/draw`)
     page.once('dialog', (dialog) => void dialog.accept())
     await page.getByRole('button', { name: '1 回引く' }).click()
-    await expect(page).toHaveURL(/\/draws\/[^/]+$/)
+    await completeDrawEffect(page, 1)
 
     const resultUrl = page.url()
     await page.reload()
     await expect(page.getByRole('heading', { name: '抽選結果', level: 1 })).toBeVisible()
 
     await page.goto('/mypage/draws')
-    await page.getByRole('link', { name: 'E2E テスト用オリパ（大容量）' }).first().click()
+    await page.getByRole('link', { name: DRAW_POOL_NAME }).first().click()
     // クリック直後は遷移が完了していないため、URL の一致を待って確認する
     await expect(page).toHaveURL(resultUrl)
     await expect(page.getByRole('heading', { name: '抽選結果', level: 1 })).toBeVisible()
@@ -291,7 +300,7 @@ test.describe('管理画面の抽選履歴', () => {
     await page.goto(`/oripas/${TARGET_SLUG}/draw`)
     page.once('dialog', (dialog) => void dialog.accept())
     await page.getByRole('button', { name: '1 回引く' }).click()
-    await expect(page).toHaveURL(/\/draws\/[^/]+$/)
+    await completeDrawEffect(page, 1)
 
     // 管理者でログインし直して履歴を見る
     await page.goto('/login')

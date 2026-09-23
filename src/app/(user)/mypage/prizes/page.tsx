@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 
+import { ExchangeNoticeRegion } from '@/components/prizes/exchange-notice.tsx'
 import { PrizeExchangeButton } from '@/components/prizes/prize-exchange-button.tsx'
 import { Alert } from '@/components/ui/alert.tsx'
 import { Card } from '@/components/ui/card.tsx'
@@ -52,6 +53,9 @@ export default async function PrizesPage({
           抽選履歴
         </Link>
       </div>
+
+      {/* 交換の結果。一覧の再描画で消えないよう、一覧の外に置く */}
+      <ExchangeNoticeRegion />
 
       {result.undecidedTotal > 0 ? (
         <Alert tone="info">

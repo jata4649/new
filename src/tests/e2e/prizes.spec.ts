@@ -1,5 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import {
+  drawEffect,
+  drawThroughEffect,
+  DRAW_POOL_NAME,
+  DRAW_POOL_SLUG,
+} from './support/draw-flow.ts'
+
 /**
  * 演出とポイント交換の E2E（Phase 6）。
  *
@@ -12,7 +19,7 @@ import { expect, test, type Page } from '@playwright/test'
  */
 
 const PASSWORD = 'E2ePrizePassword1'
-const TARGET_SLUG = 'e2e-draw-pool'
+const TARGET_SLUG = DRAW_POOL_SLUG
 
 function uniqueEmail(): string {
   return `e2e-prize-${Date.now()}-${Math.floor(Math.random() * 10_000)}@example.test`
@@ -42,17 +49,7 @@ async function chargePoints(page: Page, amountYen: 500 | 1_000 | 3_000): Promise
 
 /** 1 回引いて演出を最後まで進め、結果画面まで到達する */
 async function drawOnceThroughEffect(page: Page): Promise<void> {
-  await page.goto(`/oripas/${TARGET_SLUG}/draw`)
-  page.once('dialog', (dialog) => void dialog.accept())
-  await page.getByRole('button', { name: '1 回引く' }).click()
-
-  // 演出が出る
-  const effect = page.getByRole('dialog', { name: '抽選演出' })
-  await expect(effect).toBeVisible()
-  await effect.getByRole('button', { name: /スキップ|結果を見る/ }).click()
-  await effect.getByRole('button', { name: '結果を見る' }).click()
-
-  await expect(page).toHaveURL(/\/draws\/[^/]+$/)
+  await drawThroughEffect(page, 1)
 }
 
 test.describe('ガチャ演出', () => {
@@ -66,7 +63,7 @@ test.describe('ガチャ演出', () => {
     page.once('dialog', (dialog) => void dialog.accept())
     await page.getByRole('button', { name: '10 連で引く' }).click()
 
-    const effect = page.getByRole('dialog', { name: '抽選演出' })
+    const effect = drawEffect(page)
     await expect(effect).toBeVisible()
 
     // スキップすると 10 件すべてが表示される
@@ -89,7 +86,7 @@ test.describe('ガチャ演出', () => {
     page.once('dialog', (dialog) => void dialog.accept())
     await page.getByRole('button', { name: '1 回引く' }).click()
 
-    const effect = page.getByRole('dialog', { name: '抽選演出' })
+    const effect = drawEffect(page)
     await expect(effect).toBeVisible()
 
     await page.keyboard.press('Escape')
@@ -106,7 +103,7 @@ test.describe('ガチャ演出', () => {
     page.once('dialog', (dialog) => void dialog.accept())
     await page.getByRole('button', { name: '1 回引く' }).click()
 
-    const effect = page.getByRole('dialog', { name: '抽選演出' })
+    const effect = drawEffect(page)
     const soundButton = effect.getByRole('button', { name: /音/ })
 
     // 既定はオフ（不意に音が鳴らない）
@@ -124,11 +121,11 @@ test.describe('ガチャ演出', () => {
     await page.goto(`/oripas/${TARGET_SLUG}/draw`)
     page.once('dialog', (dialog) => void dialog.accept())
     await page.getByRole('button', { name: '1 回引く' }).click()
-    await expect(page.getByRole('dialog', { name: '抽選演出' })).toBeVisible()
+    await expect(drawEffect(page)).toBeVisible()
 
     // 演出の途中で別の画面へ移動する（＝ブラウザを閉じたのと同じ状況）
     await page.goto('/mypage/draws')
-    await expect(page.getByRole('link', { name: 'E2E テスト用オリパ（大容量）' })).toBeVisible()
+    await expect(page.getByRole('link', { name: DRAW_POOL_NAME })).toBeVisible()
     await expect(page.getByText('まだ抽選していません。')).toHaveCount(0)
   })
 
@@ -145,7 +142,7 @@ test.describe('ガチャ演出', () => {
     page.once('dialog', (dialog) => void dialog.accept())
     await page.getByRole('button', { name: '10 連で引く' }).click()
 
-    const effect = page.getByRole('dialog', { name: '抽選演出' })
+    const effect = drawEffect(page)
     // 溜めが無いので、すぐに全件表示になる
     await expect(effect.getByText('10 件すべて表示しました')).toBeVisible({ timeout: 2_000 })
 
@@ -169,8 +166,15 @@ test.describe('ポイント交換', () => {
     await page.getByRole('button', { name: /P へ交換$/ }).click()
 
     await expect(page.getByText(/P を付与しました/)).toBeVisible()
-    await page.reload()
+
+    // 一覧が更新され、交換ボタンが消えても通知は残る。
+    // 取り消せない操作の結果が一瞬で消えてしまうと、何が起きたのか分からなくなる。
     // 絞り込みの <option> にも同じ文字列があるため、一覧の中に限定して探す
+    await expect(page.getByRole('listitem').getByText('ポイント交換済み')).toBeVisible()
+    await expect(page.getByRole('button', { name: /P へ交換$/ })).toHaveCount(0)
+    await expect(page.getByText(/P を付与しました/)).toBeVisible()
+
+    await page.reload()
     await expect(page.getByRole('listitem').getByText('ポイント交換済み')).toBeVisible()
     // 未選択が無くなったので案内も消える
     await expect(page.getByText(/未選択の商品が/)).toHaveCount(0)
