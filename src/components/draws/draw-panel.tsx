@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
+import { DrawEffect, type EffectPrize } from '@/components/draws/draw-effect.tsx'
 import { Alert } from '@/components/ui/alert.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { postJson } from '@/lib/http/client.ts'
@@ -23,6 +24,12 @@ import { postJson } from '@/lib/http/client.ts'
  * ■ 通信が切れた場合
  *   結果はサーバー側で確定済みなので、履歴（/mypage/draws）から確認できる。
  *   画面にもその旨を出す。
+ *
+ * ■ 演出との関係
+ *   サーバーから結果を受け取ってから演出を再生し、終わったら結果画面へ移る。
+ *   演出中に閉じられても結果は DB にあるため失われない。
+ *   リプレイ（同じ冪等性キーの再送）のときは演出を飛ばす。
+ *   すでに見た結果をもう一度見せられても嬉しくないため。
  */
 
 const DRAW_OPTIONS = [
@@ -32,6 +39,7 @@ const DRAW_OPTIONS = [
 
 interface DrawSuccess {
   drawTransactionId: string
+  prizes: EffectPrize[]
 }
 
 export function DrawPanel({
@@ -52,6 +60,8 @@ export function DrawPanel({
   const [error, setError] = useState<string | undefined>()
   const [notice, setNotice] = useState<string | undefined>()
   const [pendingCount, setPendingCount] = useState<number | null>(null)
+  /** 演出中の結果。null なら演出していない。 */
+  const [effect, setEffect] = useState<DrawSuccess | null>(null)
 
   function reasonToDisable(count: number): string | null {
     const total = unitPricePoints * count
@@ -100,16 +110,34 @@ export function DrawPanel({
         return
       }
 
-      // 結果画面へ。演出は Phase 6 でこの遷移の前に挟む。
-      router.push(`/draws/${result.data.drawTransactionId}`)
-      router.refresh()
+      if (result.replayed) {
+        // 再送で返ってきた記録済みの結果。演出はせず結果画面へ。
+        router.push(`/draws/${result.data.drawTransactionId}`)
+        router.refresh()
+        return
+      }
+
+      // 演出を再生する。結果はすでに確定しているので、
+      // ここで何が起きても当選内容は変わらない。
+      setEffect(result.data)
     } finally {
       setPendingCount(null)
     }
   }
 
+  function finishEffect() {
+    const id = effect?.drawTransactionId
+    setEffect(null)
+    if (id) {
+      router.push(`/draws/${id}`)
+      router.refresh()
+    }
+  }
+
   return (
     <div className="space-y-4">
+      {effect ? <DrawEffect prizes={effect.prizes} onFinish={finishEffect} /> : null}
+
       {error ? <Alert tone="error">{error}</Alert> : null}
       {notice ? (
         <Alert tone="warning">

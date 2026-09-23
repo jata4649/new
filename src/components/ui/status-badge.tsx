@@ -2,6 +2,7 @@ import type {
   CampaignStatus,
   EffectTier,
   InventoryStatus,
+  PrizeStatus,
   UserStatus,
 } from '@/generated/prisma/enums.ts'
 import { cn } from '@/lib/utils.ts'
@@ -90,4 +91,17 @@ const EFFECT_TIER_STYLES: Record<EffectTier, string> = {
  */
 export function EffectTierBadge({ tier, label }: { tier: EffectTier; label: string }) {
   return <span className={cn(BADGE_BASE, EFFECT_TIER_STYLES[tier])}>{label}</span>
+}
+
+const PRIZE_STATUS_LABELS: Record<PrizeStatus, { label: string; className: string }> = {
+  UNDECIDED: { label: '未選択', className: 'bg-amber-500/15 text-amber-300' },
+  EXCHANGED: { label: 'ポイント交換済み', className: 'bg-base-700/40 text-base-100' },
+  SHIPPING_REQUESTED: { label: '発送申請中', className: 'bg-sky-500/15 text-sky-300' },
+  SHIPPED: { label: '発送済み', className: 'bg-emerald-500/15 text-emerald-300' },
+  CANCELLED: { label: '取消済み', className: 'bg-red-500/15 text-red-300' },
+}
+
+export function PrizeStatusBadge({ status }: { status: PrizeStatus }) {
+  const { label, className } = PRIZE_STATUS_LABELS[status]
+  return <span className={cn(BADGE_BASE, className)}>{label}</span>
 }

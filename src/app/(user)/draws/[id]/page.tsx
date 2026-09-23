@@ -118,9 +118,13 @@ export default async function DrawResultPage({ params }: { params: Promise<{ id:
         </ul>
       </section>
 
-      <Alert tone="info" title="この先の操作は Phase 6・7 で実装します">
-        当選した景品は「ポイント交換」または「発送申請」を選べるようになります。
-        それまでは未選択（UNDECIDED）のまま保持されます。
+      <Alert tone="info" title="この先の操作">
+        当選した景品は{' '}
+        <Link href="/mypage/prizes" className="text-accent-400 underline">
+          当選商品
+        </Link>{' '}
+        からポイント交換できます。発送申請は Phase 7 で追加します。
+        選ぶまでは未選択（UNDECIDED）のまま保持されます。
       </Alert>
     </div>
   )

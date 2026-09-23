@@ -63,9 +63,12 @@ export default async function MyPage() {
             抽選履歴
           </Link>
         </p>
-        <p className="text-base-100/70 mt-2 text-xs">
-          当選商品の一覧とポイント交換は Phase 6、発送申請は Phase 7 で追加します。
+        <p className="mt-2 flex flex-wrap gap-3 text-sm">
+          <Link href="/mypage/prizes" className="text-accent-400 underline">
+            当選商品
+          </Link>
         </p>
+        <p className="text-base-100/70 mt-2 text-xs">発送申請は Phase 7 で追加します。</p>
       </Card>
 
       <Card>
