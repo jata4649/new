@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card.tsx'
 import { SaleStateBadge } from '@/components/ui/status-badge.tsx'
 import { formatDateTimeJst } from '@/lib/datetime/index.ts'
 import { formatPoints } from '@/lib/money/points.ts'
+import { imageSrc } from '@/lib/uploads/image-key.ts'
 import { listPublicOripas } from '@/modules/oripa/queries.ts'
 
 export const metadata: Metadata = { title: 'オリパ一覧' }
@@ -48,7 +49,7 @@ export default async function OripasPage() {
                     {oripa.thumbnailKey ? (
                       // eslint-disable-next-line @next/next/no-img-element -- 動的生成 SVG のため最適化不要
                       <img
-                        src={`/api/placeholder/${encodeURIComponent(oripa.thumbnailKey)}`}
+                        src={imageSrc(oripa.thumbnailKey)}
                         alt=""
                         width={64}
                         height={90}

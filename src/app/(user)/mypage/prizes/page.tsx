@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card.tsx'
 import { EffectTierBadge, PrizeStatusBadge } from '@/components/ui/status-badge.tsx'
 import { formatDateTimeJst } from '@/lib/datetime/index.ts'
 import { formatPoints } from '@/lib/money/points.ts'
+import { imageSrc } from '@/lib/uploads/image-key.ts'
 import { listAddresses } from '@/modules/addresses/queries.ts'
 import { listUserPrizes } from '@/modules/prizes/queries.ts'
 import { prizeListQuerySchema } from '@/modules/prizes/schema.ts'
@@ -133,7 +134,7 @@ export default async function PrizesPage({
                 {prize.imageKey ? (
                   // eslint-disable-next-line @next/next/no-img-element -- 動的生成 SVG のため最適化不要
                   <img
-                    src={`/api/placeholder/${encodeURIComponent(prize.imageKey)}`}
+                    src={imageSrc(prize.imageKey)}
                     alt=""
                     width={72}
                     height={101}

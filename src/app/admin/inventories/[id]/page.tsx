@@ -8,6 +8,7 @@ import { InventoryStatusBadge } from '@/components/ui/status-badge.tsx'
 import { AppError } from '@/lib/api/errors.ts'
 import { hasPermission, PERMISSIONS } from '@/lib/auth/permissions.ts'
 import { formatDateTimeJst } from '@/lib/datetime/index.ts'
+import { imageSrc } from '@/lib/uploads/image-key.ts'
 import { getInventoryForAdmin, type InventoryDetail } from '@/modules/inventory/service.ts'
 import { requireAdmin } from '@/server/guards.ts'
 
@@ -116,7 +117,7 @@ export default async function InventoryDetailPage({
           <div className="mt-3 flex gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element -- 動的生成 SVG のため最適化不要 */}
             <img
-              src={`/api/placeholder/${encodeURIComponent(item.frontImageKey)}`}
+              src={imageSrc(item.frontImageKey)}
               alt={`${item.cardName} の表面画像（開発用プレースホルダー）`}
               width={120}
               height={168}
@@ -125,7 +126,7 @@ export default async function InventoryDetailPage({
             {item.backImageKey ? (
               // eslint-disable-next-line @next/next/no-img-element -- 同上
               <img
-                src={`/api/placeholder/${encodeURIComponent(item.backImageKey)}`}
+                src={imageSrc(item.backImageKey)}
                 alt={`${item.cardName} の裏面画像（開発用プレースホルダー）`}
                 width={120}
                 height={168}

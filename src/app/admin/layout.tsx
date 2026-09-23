@@ -16,7 +16,7 @@ import { requireAdmin } from '@/server/guards.ts'
  * 認可ではない。実際の判定は各ページと API で行う。
  */
 
-const NAV_ITEMS: { href: string; label: string; permission: Permission; phase?: string }[] = [
+const NAV_ITEMS: { href: string; label: string; permission: Permission }[] = [
   { href: '/admin', label: 'ダッシュボード', permission: PERMISSIONS.USER_READ },
   { href: '/admin/users', label: 'ユーザー管理', permission: PERMISSIONS.USER_READ },
   { href: '/admin/inventories', label: '在庫管理', permission: PERMISSIONS.INVENTORY_READ },
@@ -27,12 +27,7 @@ const NAV_ITEMS: { href: string; label: string; permission: Permission; phase?: 
     label: '発送管理',
     permission: PERMISSIONS.SHIPPING_READ,
   },
-  {
-    href: '/admin/audit-logs',
-    label: '監査ログ',
-    permission: PERMISSIONS.AUDIT_READ,
-    phase: 'Phase 8',
-  },
+  { href: '/admin/audit-logs', label: '監査ログ', permission: PERMISSIONS.AUDIT_READ },
 ]
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -61,16 +56,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
             {visibleItems.map((item) => (
               <li key={item.href}>
-                {item.phase ? (
-                  <span className="text-base-700" title={`${item.phase} で実装予定`}>
-                    {item.label}
-                    <span className="ml-1 text-xs">({item.phase})</span>
-                  </span>
-                ) : (
-                  <Link href={item.href} className="text-base-100 hover:text-accent-400">
-                    {item.label}
-                  </Link>
-                )}
+                <Link href={item.href} className="text-base-100 hover:text-accent-400">
+                  {item.label}
+                </Link>
               </li>
             ))}
           </ul>

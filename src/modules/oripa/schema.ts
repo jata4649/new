@@ -135,6 +135,17 @@ export const suspendOripaSchema = z.object({
     .max(500, '理由は 500 文字以内で入力してください'),
 })
 
+/**
+ * シードの公開（リビール）。
+ *
+ * 一度公開したら取り消せない。公開するとユーザー向けの画面にシードが出て、
+ * 第三者がコミットハッシュを検証できるようになる。
+ * 誤操作で公開されないよう、確認の意思表示を入力としても要求する。
+ */
+export const revealSeedSchema = z.object({
+  confirm: z.literal(true, { message: 'シード公開の確認が必要です' }),
+})
+
 export const oripaListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   perPage: z.coerce.number().int().min(1).max(100).default(20),

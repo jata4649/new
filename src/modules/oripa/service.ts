@@ -2,13 +2,13 @@ import { Prisma } from '@/generated/prisma/client.ts'
 import { CampaignStatus, InventoryStatus } from '@/generated/prisma/enums.ts'
 import { AppError, ERROR_CODES, errors, type FieldError } from '@/lib/api/errors.ts'
 import { sha256Hex } from '@/lib/crypto/random.ts'
-import { now } from '@/lib/datetime/index.ts'
+import { isAfter, now } from '@/lib/datetime/index.ts'
 import { AUDIT_ACTIONS, AUDIT_TARGETS, writeAuditLog } from '@/modules/audit/service.ts'
 import { releaseAllocation } from '@/modules/inventory/service.ts'
 import { prisma, type PrismaTransactionClient } from '@/server/db.ts'
 
 import type { CreateOripaInput, OripaListQuery, UpdateOripaInput } from './schema.ts'
-import { buildCommitment, generateSlots } from './slots.ts'
+import { buildCommitment, generateSlots, verifySlotOrderCommitment } from './slots.ts'
 
 /**
  * オリパ（キャンペーン）の管理。
@@ -484,6 +484,111 @@ export async function suspendOripa(
   )
 
   return updated
+}
+
+/**
+ * シードを公開する（リビール）。
+ *
+ * ■ なぜ公開が要るのか
+ *   公開時にコミットハッシュ（SHA-256）を保存しているが、
+ *   シードを出さない限り第三者は何も検証できない。
+ *   「検証できる形で記録してある」と「実際に検証できる」は別物で、
+ *   後者にして初めて公正性の主張が成り立つ。
+ *
+ * ■ 販売終了後にしか公開しない
+ *   販売中に出すと、シードから draw_order を再現して
+ *   「次に何が出るか」を計算できてしまう。
+ *   完売・期間終了・アーカイブのいずれかに達してからだけ許す。
+ *
+ * ■ 一度きり
+ *   公開日時が入ったら二度と変えられない。
+ *   「公開したことにして後から差し替える」余地を残さない。
+ *   シードそのものは DB トリガ（oripa_campaigns_immutable_trigger）が
+ *   公開後の変更を拒否している。
+ *
+ * ■ 公開前に自己点検する
+ *   保存済みのスロット順から再計算したハッシュが
+ *   コミットハッシュと一致することを確かめてから公開する。
+ *   食い違ったまま公開すると、第三者の検証も当然失敗する。
+ *   そのときは公開せずに止め、原因を調べる。
+ */
+export async function revealSlotOrderSeed(
+  tx: PrismaTransactionClient,
+  campaignId: string,
+  actor: { id: string },
+  context: { ip?: string | null; userAgent?: string | null; requestId?: string | null } = {},
+): Promise<{ id: string; revealedAt: Date }> {
+  const campaign = await tx.oripaCampaign.findFirst({
+    where: { id: campaignId, deletedAt: null },
+    select: {
+      id: true,
+      status: true,
+      salesEndAt: true,
+      slotOrderCommit: true,
+      slotOrderRevealedAt: true,
+    },
+  })
+
+  if (!campaign) {
+    throw errors.notFound('オリパ')
+  }
+
+  if (!campaign.slotOrderCommit) {
+    throw errors.conflict('公開されていないオリパのシードは公開できません')
+  }
+
+  if (campaign.slotOrderRevealedAt) {
+    throw errors.conflict('このオリパのシードはすでに公開されています', {
+      revealedAt: campaign.slotOrderRevealedAt.toISOString(),
+    })
+  }
+
+  const at = now()
+  const salesEnded =
+    campaign.status === CampaignStatus.SOLD_OUT ||
+    campaign.status === CampaignStatus.ENDED ||
+    campaign.status === CampaignStatus.ARCHIVED ||
+    isAfter(at, campaign.salesEndAt)
+
+  if (!salesEnded) {
+    throw errors.conflict(
+      '販売終了後にのみシードを公開できます（販売中に公開すると次に出るものを計算できてしまいます）',
+      { status: campaign.status },
+    )
+  }
+
+  // 公開前の自己点検。食い違っていたら公開せずに止める。
+  const verification = await verifySlotOrderCommitment(tx, campaignId)
+  if (!verification.matches) {
+    throw errors.conflict(
+      'コミットハッシュと保存済みのスロット順が一致しません。公開を中止しました',
+      { campaignId },
+    )
+  }
+
+  const updated = await tx.oripaCampaign.update({
+    where: { id: campaignId },
+    data: { slotOrderRevealedAt: at },
+    select: { id: true, slotOrderRevealedAt: true },
+  })
+
+  await writeAuditLog(
+    {
+      actorType: 'ADMIN',
+      actorId: actor.id,
+      action: AUDIT_ACTIONS.ORIPA_SEED_REVEAL,
+      targetType: AUDIT_TARGETS.ORIPA_CAMPAIGN,
+      targetId: campaignId,
+      // シードそのものは監査ログへ書かない。公開の事実だけを残す。
+      after: { revealedAt: at.toISOString(), commitVerified: true },
+      ip: context.ip,
+      userAgent: context.userAgent,
+      requestId: context.requestId,
+    },
+    tx,
+  )
+
+  return { id: updated.id, revealedAt: updated.slotOrderRevealedAt ?? at }
 }
 
 /** 販売停止を解除して再開する */

@@ -146,6 +146,17 @@ export interface OripaDetail extends OripaListItem {
   slotOrderCommit: string | null
   /** 販売終了後に公開されるシード。未公開なら null。 */
   revealedSeed: string | null
+  /**
+   * 抽選順に並べたランクコード列。シード公開後にのみ返す。
+   *
+   * シードだけでは第三者はハッシュを再計算できない。
+   * コミットは SHA-256(campaignId | serverSeed | ランクコード列) なので、
+   * 検証にはこの列も要る。販売中に出すと次に出るものが分かってしまうため、
+   * 公開後に限って返す。
+   */
+  revealedTierCodes: string[] | null
+  /** 検証の手順に使う campaignId。シード公開後にのみ返す。 */
+  revealedCampaignId: string | null
 }
 
 export async function getPublicOripaDetail(slug: string): Promise<OripaDetail> {
@@ -190,6 +201,25 @@ export async function getPublicOripaDetail(slug: string): Promise<OripaDetail> {
   if (!campaign) {
     throw errors.notFound('オリパ')
   }
+
+  const isRevealed = campaign.slotOrderRevealedAt !== null
+
+  /*
+   * 検証用のランクコード列。
+   *
+   * 公開前は絶対に引かない。引いてしまうと、返さないつもりでも
+   * どこかの経路で外へ出る余地が生まれる。
+   * 公開後は「すべて引き終わった後の記録」なので、出しても先読みには使えない。
+   */
+  const revealedTierCodes = isRevealed
+    ? await prisma.oripaSlot
+        .findMany({
+          where: { campaignId: campaign.id },
+          select: { tier: { select: { code: true } } },
+          orderBy: { drawOrder: 'asc' },
+        })
+        .then((rows) => rows.map((row) => row.tier.code))
+    : null
 
   // ランクごとの残数。当たり残数の表示は要件の中核。
   const remainingByTier = await prisma.oripaSlot.groupBy({
@@ -275,6 +305,8 @@ export async function getPublicOripaDetail(slug: string): Promise<OripaDetail> {
     slotOrderCommit: campaign.slotOrderCommit,
     // シードは「公開した」と明示された場合だけ返す。
     // 販売中に返してしまうと、次に何が出るか計算できてしまう。
-    revealedSeed: campaign.slotOrderRevealedAt !== null ? campaign.slotOrderSeed : null,
+    revealedSeed: isRevealed ? campaign.slotOrderSeed : null,
+    revealedTierCodes: revealedTierCodes,
+    revealedCampaignId: isRevealed ? campaign.id : null,
   }
 }

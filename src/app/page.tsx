@@ -16,7 +16,7 @@ export default function HomePage() {
     { id: 5, title: '1 回抽選・10 連抽選・冪等性・排他制御', done: true },
     { id: 6, title: '演出・抽選結果・商品一覧・ポイント交換', done: true },
     { id: 7, title: '配送先・発送申請・発送管理', done: true },
-    { id: 8, title: '監査ログ・セキュリティ・テスト・ドキュメント', done: false },
+    { id: 8, title: '監査ログ・セキュリティ・テスト・ドキュメント', done: true },
   ]
 
   return (

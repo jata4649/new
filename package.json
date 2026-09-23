@@ -32,7 +32,8 @@
     "test:all": "vitest run",
     "test:e2e": "playwright test",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
-    "points:expire": "tsx scripts/expire-points.ts"
+    "points:expire": "tsx scripts/expire-points.ts",
+    "cleanup:expired": "tsx scripts/cleanup-expired.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed/index.ts"

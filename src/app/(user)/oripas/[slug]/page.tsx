@@ -8,6 +8,7 @@ import { SaleStateBadge } from '@/components/ui/status-badge.tsx'
 import { AppError } from '@/lib/api/errors.ts'
 import { formatDateTimeJst } from '@/lib/datetime/index.ts'
 import { formatPoints } from '@/lib/money/points.ts'
+import { imageSrc } from '@/lib/uploads/image-key.ts'
 import { getPublicOripaDetail, type OripaDetail } from '@/modules/oripa/queries.ts'
 import { getOptionalSession } from '@/server/guards.ts'
 
@@ -180,7 +181,7 @@ export default async function OripaDetailPage({
                   {prize.imageKey ? (
                     // eslint-disable-next-line @next/next/no-img-element -- 動的生成 SVG のため最適化不要
                     <img
-                      src={`/api/placeholder/${encodeURIComponent(prize.imageKey)}`}
+                      src={imageSrc(prize.imageKey)}
                       alt=""
                       width={120}
                       height={168}
@@ -224,6 +225,34 @@ export default async function OripaDetailPage({
               </dd>
             </div>
           </dl>
+
+          {oripa.revealedSeed && oripa.revealedTierCodes && oripa.revealedCampaignId ? (
+            <details className="mt-4 text-xs">
+              <summary className="text-accent-400 cursor-pointer">検証の手順</summary>
+              <div className="mt-2 space-y-2">
+                <p className="text-base-100">
+                  次の 3 つを <code>|</code>（縦棒）で連結し、SHA-256 を取ると
+                  上のコミットハッシュに一致します。ランクコードは抽選順に
+                  <code>,</code>（カンマ）で連結します。
+                </p>
+                <pre className="bg-base-950 border-base-800 overflow-x-auto rounded border p-2">
+                  {`sha256("${oripa.revealedCampaignId}" + "|" + seed + "|" + tierCodes.join(","))`}
+                </pre>
+                <div>
+                  <p className="text-base-100">
+                    抽選順のランクコード（{oripa.revealedTierCodes.length} 件）
+                  </p>
+                  <pre className="bg-base-950 border-base-800 mt-1 max-h-48 overflow-auto rounded border p-2 break-all whitespace-pre-wrap">
+                    {oripa.revealedTierCodes.join(',')}
+                  </pre>
+                </div>
+                <p className="text-base-100/70">
+                  この列は販売終了後にのみ公開しています。販売中に出すと、
+                  次に何が出るかを計算できてしまうためです。
+                </p>
+              </div>
+            </details>
+          ) : null}
         </Card>
       ) : null}
 

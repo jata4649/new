@@ -4,12 +4,13 @@ import { notFound } from 'next/navigation'
 
 import { OripaAllocationForm } from '@/components/admin/oripa-allocation-form.tsx'
 import { OripaPublishControls } from '@/components/admin/oripa-publish-controls.tsx'
+import { OripaRevealButton } from '@/components/admin/oripa-reveal-button.tsx'
 import { Alert } from '@/components/ui/alert.tsx'
 import { Card, CardTitle } from '@/components/ui/card.tsx'
 import { CampaignStatusBadge } from '@/components/ui/status-badge.tsx'
 import { AppError } from '@/lib/api/errors.ts'
 import { hasPermission, PERMISSIONS } from '@/lib/auth/permissions.ts'
-import { formatDateTimeJst } from '@/lib/datetime/index.ts'
+import { formatDateTimeJst, isAfter, now } from '@/lib/datetime/index.ts'
 import { formatOdds, formatPercent, formatPoints, ratio } from '@/lib/money/points.ts'
 import {
   getOripaDetailForAdmin,
@@ -45,6 +46,18 @@ export default async function AdminOripaDetailPage({
   const canPublish = hasPermission(session.role, PERMISSIONS.ORIPA_PUBLISH)
   const canSuspend = hasPermission(session.role, PERMISSIONS.ORIPA_SUSPEND)
   const isDraft = campaign.status === 'DRAFT' && campaign.publishedAt === null
+
+  /*
+   * シードを公開できるのは販売が終わってから。
+   * 販売中に公開すると、シードから抽選順を再現して
+   * 「次に何が出るか」を計算できてしまう。
+   * ここでの判定は導線の出し分けで、拒否の正はサーバー側にある。
+   */
+  const salesEnded =
+    campaign.status === 'SOLD_OUT' ||
+    campaign.status === 'ENDED' ||
+    campaign.status === 'ARCHIVED' ||
+    !isAfter(campaign.salesEndAt, now())
 
   const [candidates, allocatedByTier, genericPrizes] = isDraft
     ? await Promise.all([
@@ -279,6 +292,18 @@ export default async function AdminOripaDetailPage({
               </dd>
             </div>
           </dl>
+
+          {canPublish ? (
+            <OripaRevealButton
+              campaignId={campaign.id}
+              canReveal={campaign.slotOrderRevealedAt === null && salesEnded}
+              blockedReason={
+                campaign.slotOrderRevealedAt !== null
+                  ? 'シードは公開済みです。公開日時は変更できません。'
+                  : '販売中はシードを公開できません（次に出るものを計算できてしまうため）。'
+              }
+            />
+          ) : null}
         </Card>
       ) : null}
 

@@ -1,6 +1,7 @@
 import type { EffectTier } from '@/generated/prisma/enums.ts'
 import { TIER_PRESENTATION } from '@/lib/effects/tiers.ts'
 import { cn } from '@/lib/utils.ts'
+import { imageSrc } from '@/lib/uploads/image-key.ts'
 
 /**
  * 景品のサムネイル枠。
@@ -30,7 +31,7 @@ export function PrizeThumb({
     return (
       // eslint-disable-next-line @next/next/no-img-element -- 動的生成 SVG のため最適化不要
       <img
-        src={`/api/placeholder/${encodeURIComponent(imageKey)}`}
+        src={imageSrc(imageKey)}
         alt=""
         width={120}
         height={168}

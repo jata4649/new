@@ -11,6 +11,7 @@ import {
   getOripaDetailForAdmin,
   publishOripa,
   resumeOripa,
+  revealSlotOrderSeed,
   suspendOripa,
 } from '@/modules/oripa/service.ts'
 import { generateSlots, verifySlotOrderCommitment } from '@/modules/oripa/slots.ts'
@@ -738,5 +739,151 @@ describe('ユーザー向けの参照', () => {
     expect(serialized).not.toContain(campaign.slotOrderSeed)
     expect(serialized).not.toContain('drawOrder')
     expect(detail.slotOrderCommit).toMatch(/^[0-9a-f]{64}$/)
+  })
+})
+
+/* -------------------------------------------------------------------------- */
+
+describe('シードの公開（リビール・Phase 8）', () => {
+  async function publishedCampaign(overrides: Partial<CreateOripaInput> = {}): Promise<string> {
+    const inventoryIds = await createInventories(2, `REV${Math.floor(Math.random() * 1e6)}`)
+    const campaignId = await createAllocatedDraft({
+      adminId,
+      input: overrides,
+      inventoryIds,
+      genericPrizeCode: genericCode,
+    })
+    await testPrisma.$transaction((tx) => publishOripa(tx, campaignId, { id: adminId }))
+    return campaignId
+  }
+
+  /** 販売終了済みの状態にする（販売終了日時を過去へ倒す） */
+  async function endSales(campaignId: string): Promise<void> {
+    await testPrisma.$executeRaw`
+      UPDATE oripa_campaigns
+      SET sales_end_at = now() - interval '1 day'
+      WHERE id = ${campaignId}
+    `
+  }
+
+  it('販売中は公開できない（次に出るものを計算できてしまうため）', async () => {
+    const campaignId = await publishedCampaign()
+
+    await expect(
+      testPrisma.$transaction((tx) => revealSlotOrderSeed(tx, campaignId, { id: adminId })),
+    ).rejects.toMatchObject({ code: ERROR_CODES.CONFLICT })
+
+    const stored = await testPrisma.oripaCampaign.findUniqueOrThrow({
+      where: { id: campaignId },
+      select: { slotOrderRevealedAt: true },
+    })
+    expect(stored.slotOrderRevealedAt).toBeNull()
+  })
+
+  it('販売終了後に公開でき、公開日時が記録される', async () => {
+    const campaignId = await publishedCampaign()
+    await endSales(campaignId)
+
+    const result = await testPrisma.$transaction((tx) =>
+      revealSlotOrderSeed(tx, campaignId, { id: adminId }),
+    )
+
+    expect(result.revealedAt).toBeInstanceOf(Date)
+
+    const stored = await testPrisma.oripaCampaign.findUniqueOrThrow({
+      where: { id: campaignId },
+      select: { slotOrderRevealedAt: true },
+    })
+    expect(stored.slotOrderRevealedAt).not.toBeNull()
+  })
+
+  it('2 回目の公開は拒否される（公開日時を差し替えられない）', async () => {
+    const campaignId = await publishedCampaign()
+    await endSales(campaignId)
+    await testPrisma.$transaction((tx) => revealSlotOrderSeed(tx, campaignId, { id: adminId }))
+
+    await expect(
+      testPrisma.$transaction((tx) => revealSlotOrderSeed(tx, campaignId, { id: adminId })),
+    ).rejects.toMatchObject({ code: ERROR_CODES.CONFLICT })
+  })
+
+  it('公開前はユーザー向け API にシードも抽選順も出ない', async () => {
+    const campaignId = await publishedCampaign({ slug: 'reveal-before' })
+    const campaign = await testPrisma.oripaCampaign.findUniqueOrThrow({
+      where: { id: campaignId },
+      select: { slug: true, slotOrderSeed: true },
+    })
+
+    const detail = await getPublicOripaDetail(campaign.slug)
+
+    expect(detail.revealedSeed).toBeNull()
+    expect(detail.revealedTierCodes).toBeNull()
+    expect(JSON.stringify(detail)).not.toContain(campaign.slotOrderSeed)
+  })
+
+  it('公開後は第三者が実際にコミットハッシュを再計算できる', async () => {
+    const campaignId = await publishedCampaign({ slug: 'reveal-after' })
+    await endSales(campaignId)
+    await testPrisma.$transaction((tx) => revealSlotOrderSeed(tx, campaignId, { id: adminId }))
+
+    const detail = await getPublicOripaDetail('reveal-after')
+
+    expect(detail.revealedSeed).not.toBeNull()
+    expect(detail.revealedTierCodes).not.toBeNull()
+    expect(detail.revealedCampaignId).toBe(campaignId)
+
+    // 公開された値だけを使って、第三者と同じ手順でハッシュを再計算する
+    const recomputed = buildSlotOrderCommitment({
+      campaignId: detail.revealedCampaignId ?? '',
+      serverSeed: detail.revealedSeed ?? '',
+      tierCodesInDrawOrder: detail.revealedTierCodes ?? [],
+    })
+
+    expect(recomputed).toBe(detail.slotOrderCommit)
+  })
+
+  it('公開は監査ログに残る（シード本体は残さない）', async () => {
+    const campaignId = await publishedCampaign({ slug: 'reveal-audit' })
+    await endSales(campaignId)
+    await testPrisma.$transaction((tx) => revealSlotOrderSeed(tx, campaignId, { id: adminId }))
+
+    const campaign = await testPrisma.oripaCampaign.findUniqueOrThrow({
+      where: { id: campaignId },
+      select: { slotOrderSeed: true },
+    })
+    const log = await testPrisma.auditLog.findFirstOrThrow({
+      where: { action: 'ORIPA_SEED_REVEAL', targetId: campaignId },
+      select: { actorId: true, after: true },
+    })
+
+    expect(log.actorId).toBe(adminId)
+    expect(JSON.stringify(log.after)).not.toContain(campaign.slotOrderSeed)
+  })
+
+  it('コミットハッシュと保存済みのスロット順が食い違えば公開しない', async () => {
+    const campaignId = await publishedCampaign({ slug: 'reveal-mismatch' })
+    await endSales(campaignId)
+
+    // 保存済みのコミットハッシュだけを差し替えて、食い違いを作る
+    // （トリガが公開後の変更を拒むため、トリガを無効にして直接書き換える）
+    await testPrisma.$executeRawUnsafe(
+      `ALTER TABLE oripa_campaigns DISABLE TRIGGER oripa_campaigns_immutable_trigger`,
+    )
+    await testPrisma.$executeRaw`
+      UPDATE oripa_campaigns SET slot_order_commit = repeat('0', 64) WHERE id = ${campaignId}
+    `
+    await testPrisma.$executeRawUnsafe(
+      `ALTER TABLE oripa_campaigns ENABLE TRIGGER oripa_campaigns_immutable_trigger`,
+    )
+
+    await expect(
+      testPrisma.$transaction((tx) => revealSlotOrderSeed(tx, campaignId, { id: adminId })),
+    ).rejects.toMatchObject({ code: ERROR_CODES.CONFLICT })
+
+    const stored = await testPrisma.oripaCampaign.findUniqueOrThrow({
+      where: { id: campaignId },
+      select: { slotOrderRevealedAt: true },
+    })
+    expect(stored.slotOrderRevealedAt).toBeNull()
   })
 })
