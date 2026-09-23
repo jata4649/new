@@ -5,8 +5,11 @@ import { expect, test, type Page } from '@playwright/test'
  *
  * 前提: `pnpm db:seed` 済みであること。
  *
- * seed のオリパを使い切ると他のテストに影響するため、
- * 引くのは「サンプル・ライトオリパ」（200 口・1 口 100 P）にしている。
+ * 引くのは E2E 専用オリパ（`e2e-draw-pool`・3,000 口・1 口 100 P）。
+ * 表示確認用の sample-* を使うと、何度か流すうちに完売して
+ * 全テストが「残り口数が足りません」で落ちてしまう。
+ * 専用プールでもいずれ枯れるので、その場合は `pnpm db:reset` で作り直す。
+ *
  * ユーザーは毎回新規登録し、ポイントもその場で取得する
  * （seed ユーザーを共有すると、先に実行したテストの残高に影響される）。
  *
@@ -16,8 +19,8 @@ import { expect, test, type Page } from '@playwright/test'
  */
 
 const PASSWORD = 'E2eDrawPassword1'
-const TARGET_SLUG = 'sample-light-01'
-/** サンプル・ライトオリパの 1 口価格 */
+const TARGET_SLUG = 'e2e-draw-pool'
+/** E2E 専用オリパの 1 口価格 */
 const UNIT_PRICE = 100
 
 function uniqueEmail(): string {
@@ -56,7 +59,7 @@ test.describe('抽選の実行', () => {
 
     await page.goto(`/oripas/${TARGET_SLUG}/draw`)
     await expect(page.getByRole('heading', { level: 1 })).toContainText(
-      'サンプル・ライトオリパ',
+      'E2E テスト用オリパ（大容量）',
     )
 
     page.once('dialog', (dialog) => void dialog.accept())
@@ -118,7 +121,7 @@ test.describe('抽選の実行', () => {
     await expect(page.getByRole('heading', { name: '抽選結果', level: 1 })).toBeVisible()
 
     await page.goto('/mypage/draws')
-    await page.getByRole('link', { name: 'サンプル・ライトオリパ' }).first().click()
+    await page.getByRole('link', { name: 'E2E テスト用オリパ（大容量）' }).first().click()
     // クリック直後は遷移が完了していないため、URL の一致を待って確認する
     await expect(page).toHaveURL(resultUrl)
     await expect(page.getByRole('heading', { name: '抽選結果', level: 1 })).toBeVisible()

@@ -171,6 +171,56 @@ const CAMPAIGN_PLANS: CampaignPlan[] = [
     ],
   },
   {
+    /*
+     * E2E 専用の大容量オリパ。
+     *
+     * E2E は「引く」テストなので、走らせるたびに口数を消費する。
+     * 表示確認用のオリパ（sample-*）を共有すると、何度か流すうちに完売し、
+     * そのあと全部のテストが「残り口数が足りません」で落ちる。
+     * 原因が分かりにくい壊れ方なので、専用の大きなプールを分けている。
+     *
+     * 景品はすべて汎用景品にして、物理在庫を消費しないようにしている
+     * （物理在庫は 200 件しか無く、当選すると WON になって戻らないため）。
+     *
+     * それでも無限ではないので、枯れたら `pnpm db:reset` で作り直すこと。
+     */
+    slug: 'e2e-draw-pool',
+    name: 'E2E テスト用オリパ（大容量）',
+    description:
+      'E2E テストが消費するための動作確認用オリパです。景品はすべてポイント還元アイテムです。',
+    pricePoints: 100,
+    totalSlots: 3_000,
+    perUserLimit: null,
+    startOffset: -1 * HOUR,
+    endOffset: 365 * DAY,
+    tiers: [
+      {
+        code: 'A',
+        name: 'A賞',
+        effectTier: EffectTier.JACKPOT,
+        slotCount: 30,
+        inventoryCount: 0,
+        genericPrizeCode: 'GENERIC-POINT-1000',
+      },
+      {
+        code: 'B',
+        name: 'B賞',
+        effectTier: EffectTier.GOLD,
+        slotCount: 270,
+        inventoryCount: 0,
+        genericPrizeCode: 'GENERIC-POINT-300',
+      },
+      {
+        code: 'C',
+        name: 'C賞',
+        effectTier: EffectTier.NORMAL,
+        slotCount: 2_700,
+        inventoryCount: 0,
+        genericPrizeCode: 'GENERIC-POINT-50',
+      },
+    ],
+  },
+  {
     slug: 'sample-scheduled-01',
     name: 'サンプル・販売前オリパ',
     description: '販売開始前の表示確認用。開始日時になるまで抽選できません。',

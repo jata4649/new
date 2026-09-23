@@ -5,12 +5,14 @@ import { expect, test, type Page } from '@playwright/test'
  *
  * 前提: `pnpm db:seed` 済みであること。
  *
- * 引くのは「サンプル・ライトオリパ」（200 口・1 口 100 P）。
+ * 引くのは E2E 専用オリパ（`e2e-draw-pool`・3,000 口・1 口 100 P）。
+ * 表示確認用の sample-* を使うと、何度か流すうちに完売して
+ * 全テストが落ちてしまうため、消費してよい専用プールを分けている。
  * ユーザーは毎回新規登録し、ポイントもその場で取得する。
  */
 
 const PASSWORD = 'E2ePrizePassword1'
-const TARGET_SLUG = 'sample-light-01'
+const TARGET_SLUG = 'e2e-draw-pool'
 
 function uniqueEmail(): string {
   return `e2e-prize-${Date.now()}-${Math.floor(Math.random() * 10_000)}@example.test`
@@ -126,7 +128,7 @@ test.describe('ガチャ演出', () => {
 
     // 演出の途中で別の画面へ移動する（＝ブラウザを閉じたのと同じ状況）
     await page.goto('/mypage/draws')
-    await expect(page.getByRole('link', { name: 'サンプル・ライトオリパ' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'E2E テスト用オリパ（大容量）' })).toBeVisible()
     await expect(page.getByText('まだ抽選していません。')).toHaveCount(0)
   })
 

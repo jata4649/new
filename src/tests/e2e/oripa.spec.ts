@@ -205,8 +205,10 @@ test.describe('管理者によるオリパ作成から公開まで', () => {
     // ログインの完了を待たずに遷移すると、セッション確立前のアクセスになってしまう
     await expect(page).toHaveURL(/\/mypage/)
 
-    await page.goto('/admin/oripas?q=sample-light-01')
-    await page.getByRole('link', { name: 'サンプル・ライトオリパ' }).click()
+    // 抽選テストが消費しないオリパを使う。
+    // 消費されるオリパを選ぶと、完売したときに「停止できない」で落ちてしまう。
+    await page.goto('/admin/oripas?q=sample-premium-01')
+    await page.getByRole('link', { name: 'サンプル・プレミアムオリパ' }).click()
     await expect(page).toHaveURL(/\/admin\/oripas\/[^/]+$/)
 
     await page.getByLabel('理由').fill('E2E テストによる一時停止')
@@ -214,7 +216,7 @@ test.describe('管理者によるオリパ作成から公開まで', () => {
     await page.getByRole('button', { name: '販売を停止する' }).click()
     await expect(page.getByText('販売を停止しました。')).toBeVisible()
 
-    await page.goto('/oripas/sample-light-01')
+    await page.goto('/oripas/sample-premium-01')
     await expect(page.getByText('このオリパは現在販売を停止しています')).toBeVisible()
 
     // 後続のテストに影響しないよう、必ず元へ戻す
