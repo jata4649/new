@@ -7,6 +7,11 @@ import {
   UPLOAD_NAME_PATTERN,
 } from '@/lib/uploads/image-key.ts'
 import { detectImageType, MAX_IMAGE_BYTES, validateImageUpload } from '@/lib/uploads/images.ts'
+import {
+  ALLOWED_IMAGE_TYPES,
+  maxImageMegabytes,
+  MAX_IMAGE_BYTES as LIMIT_MAX_BYTES,
+} from '@/lib/uploads/limits.ts'
 
 /**
  * 画像アップロードの検証の単体テスト。
@@ -151,5 +156,25 @@ describe('imageSrc', () => {
   it('キーの種別を判定できる', () => {
     expect(isUploadKey(toUploadKey('abcdefghijklmnop.png'))).toBe(true)
     expect(isUploadKey('placeholder:SR:200:front')).toBe(false)
+  })
+})
+
+describe('limits.ts（クライアントからも読む定数）', () => {
+  it('検証本体が使う上限と同じ値である', () => {
+    // 2 か所に別々の数字が書かれると、画面の案内とサーバーの拒否がずれる
+    expect(LIMIT_MAX_BYTES).toBe(MAX_IMAGE_BYTES)
+  })
+
+  it('メガバイト表記が上限と整合する', () => {
+    expect(maxImageMegabytes() * 1024 * 1024).toBe(MAX_IMAGE_BYTES)
+  })
+
+  it('許可する形式は判定できる 3 種と一致する', () => {
+    const detectable = [PNG, JPEG, WEBP].map((bytes) => detectImageType(bytes)?.contentType)
+    expect([...ALLOWED_IMAGE_TYPES].sort()).toEqual(detectable.sort())
+  })
+
+  it('SVG は許可一覧に無い', () => {
+    expect([...ALLOWED_IMAGE_TYPES]).not.toContain('image/svg+xml')
   })
 })

@@ -1,4 +1,5 @@
 import { secureToken } from '@/lib/crypto/random.ts'
+import { MAX_IMAGE_BYTES, type AllowedImageType } from './limits.ts'
 
 /**
  * 画像アップロードの検証。
@@ -24,13 +25,12 @@ import { secureToken } from '@/lib/crypto/random.ts'
  *   プレースホルダー SVG はサーバーが生成するものだけを使う。
  */
 
-/** 1 ファイルあたりの上限。カード画像として十分で、悪用の余地を抑える大きさ。 */
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024
-
-/** 許可する形式。ここに無いものは一切受け付けない。 */
-export const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
-
-export type AllowedImageType = (typeof ALLOWED_IMAGE_TYPES)[number]
+/*
+ * 制限値は限定値（limits.ts）から読む。
+ * このファイルは node:crypto を使うため、クライアントから直接 import させない。
+ */
+export { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, maxImageMegabytes } from './limits.ts'
+export type { AllowedImageType } from './limits.ts'
 
 export interface DetectedImage {
   contentType: AllowedImageType
@@ -110,9 +110,4 @@ export function validateImageUpload(bytes: Uint8Array): ImageValidationResult {
     // 保存名は乱数。元のファイル名は保存にも配信にも使わない。
     storedName: `${secureToken(16)}.${image.extension}`,
   }
-}
-
-/** 上限をメガバイト表記にする（画面の案内用） */
-export function maxImageMegabytes(): number {
-  return MAX_IMAGE_BYTES / (1024 * 1024)
 }

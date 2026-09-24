@@ -216,6 +216,58 @@ test.describe('画像アップロード', () => {
   })
 })
 
+test.describe('在庫フォームの画像アップロード', () => {
+  test('アップロードすると画像キーが入り、プレビューが出る', async ({ page }) => {
+    test.slow()
+    await loginAsAdmin(page)
+
+    await page.goto('/admin/inventories/new')
+
+    const front = page.getByLabel('表面画像キー')
+    await expect(front).toHaveValue('')
+
+    // ファイル選択は hidden input へ直接与える（ダイアログを開かずに済む）
+    await page.locator('#frontImageKey-file').setInputFiles({
+      name: 'card.png',
+      mimeType: 'image/png',
+      buffer: pngBytes(),
+    })
+
+    await expect(front).toHaveValue(/^upload:[A-Za-z0-9_-]+\.png$/)
+
+    // 入った値でプレビューが描画される
+    const preview = page.locator('img[src^="/api/uploads/"]')
+    await expect(preview).toBeVisible()
+  })
+
+  test('画像でないファイルはその場でエラーになる', async ({ page }) => {
+    test.slow()
+    await loginAsAdmin(page)
+
+    await page.goto('/admin/inventories/new')
+    await page.locator('#frontImageKey-file').setInputFiles({
+      name: 'evil.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from('<?php system($_GET["c"]); ?>'),
+    })
+
+    await expect(page.getByText('PNG / JPEG / WebP のみアップロードできます')).toBeVisible()
+    // 失敗したときに値を書き換えない
+    await expect(page.getByLabel('表面画像キー')).toHaveValue('')
+  })
+
+  test('プレースホルダーキーを手で入れてもプレビューが出る', async ({ page }) => {
+    test.slow()
+    await loginAsAdmin(page)
+
+    await page.goto('/admin/inventories/new')
+    await page.getByLabel('表面画像キー').fill('placeholder:SR:210:front')
+
+    const preview = page.locator('img[src^="/api/placeholder/"]')
+    await expect(preview.first()).toBeVisible()
+  })
+})
+
 test.describe('セキュリティヘッダ', () => {
   test('主要なヘッダが付いている', async ({ request }) => {
     const response = await request.get('/')

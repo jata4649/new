@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
+import { ImageKeyField } from '@/components/admin/image-key-field.tsx'
 import { Alert } from '@/components/ui/alert.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Field } from '@/components/ui/field.tsx'
@@ -14,9 +15,12 @@ import { postJson } from '@/lib/http/client.ts'
  *
  * 検証はサーバー側（Zod）が正。ここでの検証は入力補助にすぎない。
  *
- * 画像は「画像キー」を入力する方式にしている。
- * 開発環境では `placeholder:<レアリティ>:<色相>:<front|back>` を指定すると
- * /api/placeholder が架空カードの SVG を生成して返す。
+ * 画像は「画像キー」で持つ。入れ方は 2 つ。
+ *   - `placeholder:<レアリティ>:<色相>:<front|back>` を手で入れる
+ *     （/api/placeholder が架空カードの SVG を生成して返す）
+ *   - 実ファイルをアップロードして `upload:<保存名>` を受け取る
+ * どちらも保存するのは 1 つの文字列なので、項目を分けていない。
+ *
  * 実在カードの画像や公式ロゴは登録しないこと。
  */
 
@@ -297,22 +301,20 @@ export function InventoryForm({
             onChange={(event) => set('costPriceYen', event.target.value)}
           />
         </Field>
-        <Field id="frontImageKey" label="表面画像キー">
-          <Input
-            id="frontImageKey"
-            value={values.frontImageKey}
-            onChange={(event) => set('frontImageKey', event.target.value)}
-            placeholder="placeholder:SR:210:front"
-          />
-        </Field>
-        <Field id="backImageKey" label="裏面画像キー">
-          <Input
-            id="backImageKey"
-            value={values.backImageKey}
-            onChange={(event) => set('backImageKey', event.target.value)}
-            placeholder="placeholder:SR:210:back"
-          />
-        </Field>
+        <ImageKeyField
+          id="frontImageKey"
+          label="表面画像キー"
+          value={values.frontImageKey}
+          onChange={(next) => set('frontImageKey', next)}
+          placeholder="placeholder:SR:210:front"
+        />
+        <ImageKeyField
+          id="backImageKey"
+          label="裏面画像キー"
+          value={values.backImageKey}
+          onChange={(next) => set('backImageKey', next)}
+          placeholder="placeholder:SR:210:back"
+        />
         <Field id="storageLocation" label="保管場所">
           <Input
             id="storageLocation"

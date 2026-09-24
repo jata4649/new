@@ -3,13 +3,13 @@ import Link from 'next/link'
 
 import { ExchangeNoticeRegion } from '@/components/prizes/exchange-notice.tsx'
 import { PrizeExchangeButton } from '@/components/prizes/prize-exchange-button.tsx'
+import { PrizeThumb } from '@/components/prizes/prize-thumb.tsx'
 import { ShippingRequestPanel } from '@/components/shipping/shipping-request-panel.tsx'
 import { Alert } from '@/components/ui/alert.tsx'
 import { Card } from '@/components/ui/card.tsx'
 import { EffectTierBadge, PrizeStatusBadge } from '@/components/ui/status-badge.tsx'
 import { formatDateTimeJst } from '@/lib/datetime/index.ts'
 import { formatPoints } from '@/lib/money/points.ts'
-import { imageSrc } from '@/lib/uploads/image-key.ts'
 import { listAddresses } from '@/modules/addresses/queries.ts'
 import { listUserPrizes } from '@/modules/prizes/queries.ts'
 import { prizeListQuerySchema } from '@/modules/prizes/schema.ts'
@@ -131,16 +131,17 @@ export default async function PrizesPage({
           {result.items.map((prize) => (
             <li key={prize.id}>
               <Card className="flex h-full gap-3">
-                {prize.imageKey ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- 動的生成 SVG のため最適化不要
-                  <img
-                    src={imageSrc(prize.imageKey)}
-                    alt=""
-                    width={72}
-                    height={101}
-                    className="h-fit rounded-lg"
+                {/*
+                  画像を持たない景品でも枠は必ず出す。
+                  出し分けると、画像なしの行だけ本文が左へ寄って一覧がガタつく。
+                */}
+                <div className="w-[72px] shrink-0">
+                  <PrizeThumb
+                    imageKey={prize.imageKey}
+                    effectTier={prize.effectTier}
+                    tierName={prize.effectTier}
                   />
-                ) : null}
+                </div>
 
                 <div className="min-w-0 flex-1 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
