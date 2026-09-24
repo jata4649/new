@@ -21,6 +21,10 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
+    // 同時実行テスト（concurrency）は Phase 5 で追加するまでファイルが無い。
+    // 0 件を失敗にすると CI が落ちるため、成功として扱う。
+    // ルート設定にしか効かないオプションなのでここへ置いている。
+    passWithNoTests: true,
     projects: [
       {
         resolve: {

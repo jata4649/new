@@ -1,0 +1,271 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # 手動実行（障害調査や再試行のため）
+  workflow_dispatch:
+
+# 同じブランチへ続けて push したとき、古い実行を打ち切る
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  # 検証用のダミー値。実際の秘密情報は一切使わない。
+  # env.ts は起動時にこれらを検証するため、欠けているとテストもビルドも落ちる。
+  AUTH_SECRET: 'ci-only-dummy-secret-not-used-in-any-real-environment'
+  SITE_ACCESS_MODE: 'closed'
+  SITE_BASIC_AUTH_USER: 'tester'
+  SITE_BASIC_AUTH_PASSWORD: 'closed_test_password'
+  MOCK_PAYMENT_WEBHOOK_SECRET: 'ci-only-dummy-webhook-secret'
+  # レート制限は Redis に依存するため CI では無効化する
+  RATE_LIMIT_ENABLED: 'false'
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # DB を必要としない検査。最も速く落ちるので最初に回す。
+  # ---------------------------------------------------------------------------
+  static-checks:
+    name: 型・Lint・整形・単体テスト
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # prisma generate は prisma.config.ts を読むため DATABASE_URL が必須。
+      # 接続はしないのでダミーで足りる。
+      DATABASE_URL: 'postgresql://oripa:ci@localhost:5432/oripa_ci?schema=public'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: 依存関係をインストール
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma クライアントを生成
+        # src/generated はコミットしていないため、型チェックの前に必ず生成する
+        run: pnpm db:generate
+
+      - name: 整形の確認
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: 型チェック
+        run: pnpm typecheck
+
+      - name: 単体テスト
+        run: pnpm test
+
+      - name: 依存パッケージの脆弱性スキャン
+        # high 以上で失敗する。確認済みのものは package.json の
+        # pnpm.auditConfig.ignoreGhsas に記録してあり、理由は
+        # docs/10-known-limitations.md に書いてある。
+        # 新しい脆弱性が増えたらここで落ちる。
+        run: pnpm audit --audit-level high
+
+  # ---------------------------------------------------------------------------
+  # DB を使う検査。マイグレーション・制約・トランザクションの検証はここ。
+  # ---------------------------------------------------------------------------
+  database-tests:
+    name: マイグレーション・統合テスト・台帳整合性
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: oripa
+          POSTGRES_PASSWORD: oripa_ci_password
+          POSTGRES_DB: oripa_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oripa -d oripa_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: 'postgresql://oripa:oripa_ci_password@localhost:5432/oripa_test?schema=public'
+      TEST_DATABASE_URL: 'postgresql://oripa:oripa_ci_password@localhost:5432/oripa_test?schema=public'
+      # migrate diff --from-migrations はシャドウ DB を必要とする。
+      # prisma.config.ts が SHADOW_DATABASE_URL を読む。
+      SHADOW_DATABASE_URL: 'postgresql://oripa:oripa_ci_password@localhost:5432/oripa_shadow?schema=public'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: 依存関係をインストール
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma クライアントを生成
+        run: pnpm db:generate
+
+      - name: マイグレーションを適用
+        # 失敗した場合、マイグレーションが壊れている（本番で同じことが起きる）
+        run: pnpm db:migrate:deploy
+
+      - name: シャドウ DB を作成
+        # psql は Prisma 形式の URL（?schema=... 付き）を受け付けないため、
+        # PG* 環境変数で接続先を指定する。
+        env:
+          PGHOST: localhost
+          PGUSER: oripa
+          PGPASSWORD: oripa_ci_password
+          PGDATABASE: oripa_test
+        run: psql -v ON_ERROR_STOP=1 -c 'CREATE DATABASE oripa_shadow'
+
+      - name: マイグレーションとスキーマの差分が無いことを確認
+        # schema.prisma を変更したのにマイグレーションを作り忘れた状態を検出する。
+        # --exit-code は「差分あり」で 2、エラーで 1 を返す。
+        run: |
+          pnpm exec prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema prisma/schema.prisma \
+            --exit-code
+
+      - name: DB ガードが適用されていることを確認
+        # 追記専用トリガ・改変防止トリガ・CHECK 制約はマイグレーションの中核。
+        # 数が合わなければ 0002_guards / 0003_commit_reveal が正しく流れていない。
+        env:
+          PGHOST: localhost
+          PGUSER: oripa
+          PGPASSWORD: oripa_ci_password
+          PGDATABASE: oripa_test
+        run: |
+          set -euo pipefail
+
+          TRIGGERS=$(psql -tAc \
+            "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%append_only%'")
+          echo "追記専用トリガ: ${TRIGGERS} 件"
+          if [ "$TRIGGERS" -ne 5 ]; then
+            echo "::error::追記専用トリガが 5 件ではありません（${TRIGGERS} 件）"
+            exit 1
+          fi
+
+          IMMUTABLE=$(psql -tAc \
+            "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%immutable%'")
+          echo "公開後の改変防止トリガ: ${IMMUTABLE} 件"
+          if [ "$IMMUTABLE" -ne 3 ]; then
+            echo "::error::公開後の改変防止トリガが 3 件ではありません（${IMMUTABLE} 件）"
+            exit 1
+          fi
+
+          CHECKS=$(psql -tAc \
+            "SELECT count(*) FROM pg_constraint WHERE contype = 'c' AND conname LIKE '%_check'")
+          echo "CHECK 制約: ${CHECKS} 件"
+          if [ "$CHECKS" -lt 20 ]; then
+            echo "::error::CHECK 制約が想定より少ないです（${CHECKS} 件）"
+            exit 1
+          fi
+
+      - name: 統合テスト
+        run: pnpm test:integration
+
+      - name: 同時実行テスト
+        run: pnpm test:concurrency
+
+      - name: seed を投入
+        run: pnpm db:seed
+
+      - name: ポイント台帳の整合性を検証
+        # 不整合があれば終了コード 1。金銭事故を CI で検出するための最終関門。
+        run: pnpm points:reconcile
+
+      - name: 掃除バッチが動くことを確認
+        # 消してはいけないものを消していないかは統合テストで見る。
+        # ここでは「バッチ自体が起動して正常終了すること」だけを確かめる。
+        run: pnpm cleanup:expired --dry-run
+
+  # ---------------------------------------------------------------------------
+  # 実際にアプリを起動しての検証。
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: ビルド・E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [static-checks]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: oripa
+          POSTGRES_PASSWORD: oripa_ci_password
+          POSTGRES_DB: oripa_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oripa -d oripa_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: 'postgresql://oripa:oripa_ci_password@localhost:5432/oripa_e2e?schema=public'
+      # すでにビルド済みなので、Playwright にはサーバー起動だけを任せる
+      PLAYWRIGHT_WEB_SERVER_COMMAND: 'pnpm start'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: 依存関係をインストール
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma クライアントを生成
+        run: pnpm db:generate
+
+      - name: DB を準備
+        run: |
+          pnpm db:migrate:deploy
+          pnpm db:seed
+
+      - name: Playwright のブラウザを取得
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: 本番ビルド
+        run: pnpm build
+
+      - name: E2E テスト
+        # サーバーの起動と停止は playwright.config.ts の webServer が行う。
+        # 自前でバックグラウンド起動するより、起動待ちと後始末が確実。
+        run: pnpm test:e2e
+
+      - name: 失敗時のレポートを保存
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

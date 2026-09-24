@@ -1,32 +1,34 @@
+// ★ 必ず最初に import すること（campaigns.ts が読む DATABASE_URL を先に用意する）
+import './bootstrap.ts'
+
 import { PrismaPg } from '@prisma/adapter-pg'
 
 import { PrismaClient } from '../../src/generated/prisma/client.ts'
 import { Role, UserStatus } from '../../src/generated/prisma/enums.ts'
-import { loadDotEnvFiles } from '../../src/lib/config/dotenv.ts'
 import { hashPassword } from '../../src/modules/auth/password.ts'
 
+import { GENERIC_PRIZES, seedCampaigns } from './campaigns.ts'
 import { assertRecordIsClean } from './ng-words.ts'
 import { generateCards } from './placeholders.ts'
 
 /**
  * 開発確認用 seed。
  *
- * Phase 1 の範囲:
+ * 作るもの:
  *   - 管理者 1 名 / 一般ユーザー 3 名（ポイント口座つき、残高は 0）
- *   - 架空カード在庫 120 件（実在 IP を含まないことを機械的に検査する）
- *   - 汎用景品（ハズレ枠を作らないための代替商品）1 件
+ *   - 架空カード在庫 200 件（実在 IP を含まないことを機械的に検査する）
+ *   - 汎用景品（ハズレ枠を作らないための代替商品）4 件
  *   - システム設定の初期値
+ *   - オリパ: 販売中 3 種 / 販売前 1 種 / 完売 1 種（スロット生成と公開まで実施）
  *
- * Phase 4 以降で追加する:
- *   - 販売中オリパ 3 種 / 販売前 1 種 / 完売 1 種
- *   - 抽選スロットの生成（CSPRNG による事前シャッフル）
- *   - ポイント履歴・抽選履歴・発送申請のサンプル
- *   これらは抽選スロット生成ロジック（Phase 4）に依存するため、ここでは作らない。
+ * Phase 5 以降で追加する:
+ *   - 抽選履歴（draw_transactions / draw_results / user_prizes）
+ *   - 発送申請のサンプル
+ *   これらは抽選処理そのものが作るデータなので、seed で組み立てない
+ *   （seed 専用の近道を作ると、本番経路の不具合に気付けなくなるため）。
  *
  * 【重要】この seed は開発環境専用。NODE_ENV=production では実行を拒否する。
  */
-
-loadDotEnvFiles()
 
 const SEED_PASSWORD = 'TestPassword123!'
 
@@ -57,7 +59,11 @@ const SEED_USERS = [
   },
 ] as const
 
-const CARD_COUNT = 120
+/**
+ * 架空カードの枚数。
+ * オリパ 5 種の景品割当で 65 件を使うため、余裕を見て 200 件にしている。
+ */
+const CARD_COUNT = 200
 
 function createClient(): PrismaClient {
   const connectionString = process.env.DATABASE_URL
@@ -125,23 +131,17 @@ async function seedInventories(prisma: PrismaClient): Promise<void> {
 async function seedGenericPrizes(prisma: PrismaClient): Promise<void> {
   // ハズレ枠を作らないための代替商品。
   // 物理在庫を持たないため、複数のスロットへ割り当てられる唯一の景品種別。
-  const generic = {
-    code: 'GENERIC-POINT-100',
-    name: 'ポイント還元アイテム（100P）',
-    description: '物理カードの代わりにポイントへ交換できる景品です。発送の対象外です。',
-    exchangePoints: 100,
-    shippable: false,
+  for (const generic of GENERIC_PRIZES) {
+    assertRecordIsClean({ ...generic }, 'genericPrize')
+
+    await prisma.genericPrize.upsert({
+      where: { code: generic.code },
+      update: {},
+      create: generic,
+    })
   }
 
-  assertRecordIsClean(generic, 'genericPrize')
-
-  await prisma.genericPrize.upsert({
-    where: { code: generic.code },
-    update: {},
-    create: generic,
-  })
-
-  console.log('  汎用景品 1 件を登録しました')
+  console.log(`  汎用景品 ${GENERIC_PRIZES.length} 件を登録しました`)
 }
 
 async function seedSystemSettings(prisma: PrismaClient): Promise<void> {
@@ -183,6 +183,7 @@ async function main(): Promise<void> {
     await seedInventories(prisma)
     await seedGenericPrizes(prisma)
     await seedSystemSettings(prisma)
+    await seedCampaigns(prisma)
 
     console.log('\nseed が完了しました')
     console.log('---------------------------------------------')
@@ -192,7 +193,7 @@ async function main(): Promise<void> {
       console.log(`  ${user.role.padEnd(6)} ${user.email}`)
     }
     console.log('---------------------------------------------')
-    console.log('※ 認証画面は Phase 2 で実装します。')
+    console.log('オリパ: /oripas から確認できます（管理は /admin/oripas）')
   } finally {
     await prisma.$disconnect()
   }

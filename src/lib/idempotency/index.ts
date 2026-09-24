@@ -120,37 +120,40 @@ export async function runIdempotent<T>(
     if (!isUniqueViolation(error)) {
       throw error
     }
-    // ここに来た時点で、先行リクエストは COMMIT 済み。記録されたレスポンスを返す。
-    return { data: await replayStoredResponse<T>(context), replayed: true }
-  }
-}
 
-async function replayStoredResponse<T>(context: IdempotencyContext): Promise<T> {
-  const existing = await prisma.idempotencyKey.findUnique({
-    where: {
-      userId_scope_key: {
-        userId: context.userId,
-        scope: context.scope,
-        key: context.key,
+    // P2002 は冪等性キー以外の一意制約でも起きる。
+    // それらを「重複リクエスト」と誤認すると、本当のバグが
+    // REQUEST_IN_PROGRESS として隠れてしまうため、
+    // 冪等性キーの行が実際に存在するかどうかで判別する。
+    //
+    // 自分のトランザクションはロールバック済みなので、行が見えるのは
+    // 「先行リクエストがコミットした」場合だけ。
+    const existing = await prisma.idempotencyKey.findUnique({
+      where: {
+        userId_scope_key: {
+          userId: context.userId,
+          scope: context.scope,
+          key: context.key,
+        },
       },
-    },
-    select: { requestHash: true, state: true, responseBody: true },
-  })
+      select: { requestHash: true, state: true, responseBody: true },
+    })
 
-  if (!existing) {
-    // 先行がロールバックした直後など、ごく稀に起こりうる。再送を促す。
-    throw errors.requestInProgress()
+    if (!existing) {
+      // 冪等性キーとは無関係の一意制約違反。元のエラーをそのまま投げる。
+      throw error
+    }
+
+    if (existing.requestHash !== context.requestHash) {
+      throw errors.idempotencyKeyConflict()
+    }
+
+    if (existing.state !== IdempotencyState.SUCCEEDED || existing.responseBody === null) {
+      throw errors.requestInProgress()
+    }
+
+    return { data: existing.responseBody as T, replayed: true }
   }
-
-  if (existing.requestHash !== context.requestHash) {
-    throw errors.idempotencyKeyConflict()
-  }
-
-  if (existing.state !== IdempotencyState.SUCCEEDED || existing.responseBody === null) {
-    throw errors.requestInProgress()
-  }
-
-  return existing.responseBody as T
 }
 
 /** 期限切れの冪等性キーを削除する（日次バッチ用） */

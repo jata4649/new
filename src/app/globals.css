@@ -69,3 +69,92 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/*
+ * ガチャ演出（Phase 6）。
+ *
+ * 【設計の前提】演出は装飾でしかない。
+ *   抽選結果は演出の前にサーバーで確定しており、DB にも記録済み。
+ *   このアニメーションが 1 フレームも再生されなくても、
+ *   結果は /draws/[id] で必ず確認できる。
+ *
+ * 上の prefers-reduced-motion ルールがここで定義した animation も
+ * まとめて 0.01ms へ潰すため、演出を切った利用者は
+ * 「一瞬で結果が出る」挙動になる（結果が失われることはない）。
+ */
+
+@keyframes gacha-card-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(1.5rem) scale(0.92) rotateY(35deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotateY(0deg);
+  }
+}
+
+@keyframes gacha-glow-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes gacha-rainbow-sweep {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 200% 50%;
+  }
+}
+
+@keyframes gacha-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-0.35rem);
+  }
+  40% {
+    transform: translateX(0.35rem);
+  }
+  60% {
+    transform: translateX(-0.2rem);
+  }
+  80% {
+    transform: translateX(0.2rem);
+  }
+}
+
+.gacha-reveal {
+  animation: gacha-card-reveal 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.gacha-glow {
+  animation: gacha-glow-pulse 1.4s ease-in-out infinite;
+}
+
+.gacha-rainbow {
+  background-image: linear-gradient(
+    110deg,
+    var(--color-tier-blue),
+    var(--color-tier-rainbow),
+    var(--color-tier-gold),
+    var(--color-tier-rainbow),
+    var(--color-tier-blue)
+  );
+  background-size: 200% 200%;
+  animation: gacha-rainbow-sweep 2.4s linear infinite;
+}
+
+.gacha-shake {
+  animation: gacha-shake 520ms ease-in-out both;
+}

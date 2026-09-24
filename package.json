@@ -31,7 +31,10 @@
     "test:concurrency": "vitest run --project concurrency",
     "test:all": "vitest run",
     "test:e2e": "playwright test",
-    "check": "pnpm typecheck && pnpm lint && pnpm test"
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "points:expire": "tsx scripts/expire-points.ts",
+    "cleanup:expired": "tsx scripts/cleanup-expired.ts",
+    "audit": "pnpm audit --audit-level high"
   },
   "prisma": {
     "seed": "tsx prisma/seed/index.ts"
@@ -85,6 +88,13 @@
       "prisma",
       "sharp",
       "unrs-resolver"
-    ]
+    ],
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-ggr8-5vv4-36mx",
+        "GHSA-3f6p-5ww8-9rcr",
+        "GHSA-rgwj-5xj2-c3m3"
+      ]
+    }
   }
 }

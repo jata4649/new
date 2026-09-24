@@ -22,15 +22,15 @@
 | Phase | 内容                                                                          | 状態    |
 | ----- | ----------------------------------------------------------------------------- | ------- |
 | 1     | 要件整理・アーキテクチャ・Prisma スキーマ・Docker・環境変数・初期セットアップ | ✅ 完了 |
-| 2     | 認証・ユーザー・RBAC・管理画面基盤                                            | 未着手  |
-| 3     | ポイント台帳・ポイントロット・Mock 決済                                       | 未着手  |
-| 4     | カード在庫・オリパ作成・景品ランク・抽選スロット生成                          | 未着手  |
-| 5     | 1 回抽選・10 連抽選・冪等性・排他制御                                         | 未着手  |
-| 6     | 演出・抽選結果・商品一覧・ポイント交換                                        | 未着手  |
+| 2     | 認証・ユーザー・RBAC・管理画面基盤                                            | ✅ 完了 |
+| 3     | ポイント台帳・ポイントロット・Mock 決済                                       | ✅ 完了 |
+| 4     | カード在庫・オリパ作成・景品ランク・抽選スロット生成                          | ✅ 完了 |
+| 5     | 1 回抽選・10 連抽選・冪等性・排他制御                                         | ✅ 完了 |
+| 6     | 演出・抽選結果・商品一覧・ポイント交換                                        | ✅ 完了 |
 | 7     | 配送先・発送申請・発送管理                                                    | 未着手  |
 | 8     | 監査ログ・セキュリティ・テスト・ドキュメント                                  | 未着手  |
 
-Phase 1 時点で未実装のものは
+未実装のものは
 [`docs/10-known-limitations.md`](./docs/10-known-limitations.md) §2 にまとめてある。
 
 ---
@@ -112,21 +112,26 @@ PostgreSQL と Redis をホストに用意し、`.env` の `DATABASE_URL` / `RED
 > `prisma migrate reset` の `--skip-seed` は廃止されているため、
 > seed を走らせたくない場合は DB を手動で作り直してから `db:migrate:deploy` を使う。
 
-### seed の内容（Phase 1）
+### seed の内容
 
 - 管理者 1 名 / 一般ユーザー 3 名（うち 1 名は `SUSPENDED`）
-- 架空カード在庫 120 件
-- 汎用景品 1 件（ハズレ枠を作らないための代替商品）
+- 架空カード在庫 200 件
+- 汎用景品 4 件（ハズレ枠を作らないための代替商品）
 - システム設定の初期値
+- オリパ 5 種（販売中 3 / 販売前 1 / 完売 1）。スロット生成と公開まで実施済み
 
-オリパ・抽選履歴・ポイント履歴・発送申請のサンプルは、
-スロット生成ロジック（Phase 4）に依存するため Phase 4 で追加する。
+オリパは API と同じサービス関数（`createOripa` → `generateSlots` → `publishOripa`）
+を通して作っている。seed 専用の近道を作ると、seed だけ通って本番経路が壊れている
+という状態に気付けなくなるため。
+
+抽選履歴・発送申請のサンプルは、抽選処理そのものが作るデータなので
+Phase 5 以降で追加する（seed で組み立てると本物の抽選との差異に気付けない）。
 
 ---
 
 ## 4. ログイン情報
 
-**Phase 1 時点ではログイン画面が未実装**（Phase 2 で実装）。
+ログイン画面は `/login`、新規会員登録は `/signup`。
 seed で作られるアカウントは以下のとおり。
 
 | ロール         | メールアドレス       | パスワード         |
@@ -136,8 +141,11 @@ seed で作られるアカウントは以下のとおり。
 | 一般           | `user2@example.test` | `TestPassword123!` |
 | 一般（停止中） | `user3@example.test` | `TestPassword123!` |
 
-`user3` は停止ユーザーの挙動（抽選・交換・発送申請ができないこと）を
+`user3` は停止ユーザーの挙動（ログインできず、抽選・交換・発送申請も行えないこと）を
 確認するために用意している。
+
+管理者でログインすると、ヘッダーに「管理画面」へのリンクが表示される（`/admin`）。
+一般ユーザーが `/admin` を直接開いてもトップへ戻される（管理画面の存在を隠すため）。
 
 ---
 
@@ -197,18 +205,36 @@ Chromium が別の場所にある環境では
 
 ## 6. Mock 決済の使い方
 
-**Phase 3 で実装する。** 設計は以下のとおり。
+`/mypage/points/purchase` から操作する。**現金は一切扱わず、カード情報の入力欄も無い。**
 
-- `PaymentProvider` インターフェース
-  （`createPayment` / `confirmPayment` / `cancelPayment` / `refundPayment` /
-  `verifyWebhook` / `getPaymentStatus`）に対する `MockPaymentProvider` を実装する
-- 管理画面 `/admin/test-payments` から
-  成功 / 失敗 / 処理中 / 取消し / 返金、
-  Webhook の重複・遅延・順序逆転を再現できる
-- **決済成功時のみ**有償ポイントを付与する
-- 同じ `paymentId` や Webhook が複数回届いてもポイントは二重付与されない
-  （`point_ledger_entries` の `(source_type, source_id, tx_type)` UNIQUE で保証）
-- 実在するカード情報は入力させない。カード番号を保存する機能は作らない
+1. 金額を選んで「テスト決済を作成」→ この時点では **ポイントは付与されない**（PENDING）
+2. 「決済成功にする」→ 有償ポイントが付与される
+3. 「決済失敗にする」「取消しにする」→ ポイントは付与されない
+4. 成功後は「返金する」を選べる
+5. 「同じキーで 2 回送信する」→ 冪等性の確認。付与は 1 回だけ
+
+### 二重付与を防ぐ 3 つの仕掛け
+
+| #   | 仕掛け                                                               | 効く場面              |
+| --- | -------------------------------------------------------------------- | --------------------- |
+| 1   | `payment_transactions` の `(provider, provider_payment_id)` UNIQUE   | 決済の重複作成        |
+| 2   | `payment_webhook_events` の `(provider, event_id)` UNIQUE            | Webhook の重複配信    |
+| 3   | `point_ledger_entries` の `(source_type, source_id, tx_type)` UNIQUE | **最後の砦**（INV-9） |
+
+1 と 2 をすり抜けても、3 が DB レベルで二重付与を拒否する。
+
+### Webhook の重複・遅延・順序逆転
+
+`POST /api/webhooks/mock-payment` は HMAC-SHA256 の署名を検証する。
+
+- **重複**：同じ `eventId` は 2 回目以降を無視する（200 で応答）
+- **順序逆転**：`occurredAt` が直近の適用済みイベントより古ければ無視する
+- **遅延**：順序が正しければ通常どおり適用する
+- **署名不正**：401。記録だけは残す（攻撃の検知に必要なため）
+
+適用しなかった場合も 200 を返す。4xx / 5xx を返すとプロバイダが再送し続けるため。
+
+実在するカード情報は入力させない。カード番号を保存する機能も作らない。
 
 ---
 
@@ -239,24 +265,187 @@ pnpm points:reconcile
 Prisma Studio（`pnpm db:studio`）で
 `inventories` に 120 件、`users` に 4 件入っていることを確認できる。
 
-### 1 回抽選の確認方法（Phase 5 で実装）
+### Phase 2 で確認できること
 
-1. `/oripas` から販売中のオリパを開く
-2. 残り口数と当選確率を確認する
+```bash
+# 未ログインでは 401（内部情報を含まない統一フォーマット）
+curl -u tester:closed_test_password http://localhost:3000/api/me
+# → {"success":false,"error":{"code":"UNAUTHENTICATED","message":"ログインが必要です"},...}
+
+# 認証フローの E2E（ログイン・権限・停止ユーザー・ログアウト）
+pnpm test:e2e
+```
+
+ブラウザでの確認:
+
+1. `/signup` から新規登録する → そのままログイン状態になり `/mypage` へ
+2. `/login` で `admin@example.test` としてログインする → `/admin` が開ける
+3. `/admin/users` から `user1` を開き、理由を入力して「停止する」
+   （確認ダイアログが出る）
+4. 別タブで `user1` としてログインしていた場合、**次の操作で即座に締め出される**
+5. `/admin` のダッシュボードに、行った操作が監査ログとして表示される
+
+### Phase 3 で確認できること
+
+```bash
+# ポイント台帳の整合性（不整合があれば終了コード 1）
+pnpm points:reconcile
+
+# 有効期限切れの対象を数えるだけ（実行はしない）
+pnpm points:expire --dry-run
+
+# 有効期限切れ処理の実行
+pnpm points:expire
+```
+
+ブラウザでの確認:
+
+1. `/mypage/points/purchase` でテスト決済を作成 → **ポイントは増えない**
+2. 「決済成功にする」→ ポイントが付与される
+3. `/mypage/points` に有効期限の内訳が表示される（有償は 180 日）
+4. `/mypage/points/history` に台帳が表示される
+5. 管理者が `/admin/users/[id]` から理由つきでポイントを調整すると、
+   ユーザー側の履歴に「調整」として理由つきで現れる
+
+### Phase 4 で確認できること
+
+ブラウザでの確認（`pnpm db:seed` 済みであること）:
+
+1. `/oripas` に販売中 3 種・販売前 1 種・完売 1 種が並ぶ
+2. `/oripas/sample-standard-01` でランク別の確率（S 賞 1.000% = 1/100）と
+   当たり残数、コミットハッシュが表示される
+3. 管理者で `/admin/inventories` → 在庫を登録
+4. `/admin/oripas/new` で下書きを作る（ランク口数の合計が総口数と一致しないと送信できない）
+5. オリパ詳細で景品を割り当てる → 「公開条件」がすべて満たされる
+6. 「公開する」→ コミットハッシュが記録され、割当フォームが消える
+
+シードと抽選順が外へ出ていないことの確認:
+
+```bash
+# 応答本文にシード・抽選順が含まれないこと
+curl -su tester:closed_test_password \
+  http://127.0.0.1:3000/api/oripas/sample-standard-01 \
+  | grep -E 'slotOrderSeed|drawOrder' && echo '漏洩あり' || echo '漏洩なし'
+```
+
+公開後の改変が DB でも拒否されることの確認:
+
+```bash
+psql "$DATABASE_URL" -c \
+  "UPDATE oripa_campaigns SET price_points = 1 WHERE slug = 'sample-standard-01';"
+# ERROR:  CAMPAIGN_IMMUTABLE: 公開済みオリパの 1 口価格は変更できません（500 → 1）
+```
+
+### 有効期限を短くして失効を確認する
+
+```bash
+# .env に追加（production では無視される）
+POINT_EXPIRY_MINUTES_OVERRIDE=1
+```
+
+決済を成功させてから 1 分後に `pnpm points:expire` を実行すると、
+台帳に `EXPIRE` が記録され、残高が 0 になる。
+
+### Phase 5 で確認できること
+
+```bash
+pnpm db:seed && pnpm dev
+```
+
+1. `/mypage/points/purchase` でテストポイントを取得する
+2. `/oripas/sample-light-01` →「抽選する」
 3. 「1 回引く」→ 確認ダイアログで消費ポイントを確認して実行
-4. 演出が再生され、結果が表示される
-5. **演出を途中で閉じても** `/mypage/draws` から結果を確認できる
-6. **リロードしても** 結果は変わらない
-7. ブラウザの開発者ツールで同じリクエストを再送しても、
-   同じ結果が返るだけで二重抽選されない（`Idempotency-Replayed: true`）
+4. `/draws/[id]` に結果が出る。**リロードしても消えない**
+5. `/mypage/draws` に履歴が残る
 
-### 10 連抽選の確認方法（Phase 5 で実装）
+同じ冪等性キーで再送しても二重に引けないことの確認:
+
+```bash
+KEY=$(uuidgen)
+for i in 1 2; do
+  curl -s -u tester:closed_test_password \
+    -b cookie.txt \
+    -H 'Content-Type: application/json' \
+    -H "Idempotency-Key: $KEY" \
+    -D - -o /dev/null \
+    -d '{"drawCount":1}' \
+    http://127.0.0.1:3000/api/oripas/sample-light-01/draw | grep -i idempotency-replayed
+done
+# 1 回目: false / 2 回目: true（ポイントは 1 回ぶんしか減らない）
+```
+
+抽選対象を名指しできないことの確認:
+
+```bash
+# slotId / inventoryId / tierCode を送っても Zod が捨てるため、結果は変わらない
+curl -s ... -d '{"drawCount":1,"slotId":"...","tierCode":"S"}' \
+  http://127.0.0.1:3000/api/oripas/sample-light-01/draw
+```
+
+同時実行の検証はテストで行う。
+
+```bash
+pnpm exec vitest run --project concurrency
+```
+
+### 1 回抽選の内部動作
+
+スロットは公開前に CSPRNG でシャッフル済みなので、抽選は
+「`AVAILABLE` を `draw_order` 昇順で n 件、`FOR UPDATE SKIP LOCKED` で取る」だけ。
+スロット確保・ポイント消費・記録・残り口数の更新はすべて同じトランザクションにある。
+詳細は [`docs/06-draw-algorithm.md`](./docs/06-draw-algorithm.md)。5. **演出を途中で閉じても** `/mypage/draws` から結果を確認できる6. **リロードしても** 結果は変わらない 7. ブラウザの開発者ツールで同じリクエストを再送しても、
+同じ結果が返るだけで二重抽選されない（`Idempotency-Replayed: true`）
+
+### 10 連抽選の確認方法
 
 1. 「10 回引く」を実行する
 2. 10 件の結果が一覧表示される
 3. 残り口数が 10 減っていることを確認する
 4. 残り口数が 10 未満のオリパでは実行できず、
    `INSUFFICIENT_SLOTS` になりポイントが減らないことを確認する
+
+### Phase 6 で確認できること
+
+```bash
+pnpm db:seed && pnpm dev
+```
+
+**演出:**
+
+1. `/oripas/sample-light-01/draw` で「10 連で引く」
+2. カードが 1 枚ずつ開く。ランクが上がるほど溜めが長くなる
+3. 「スキップ」または Esc キー → 10 件すべてが即座に表示される
+4. 「🔇 音なし」を押すと音が出るようになる（既定はオフ・設定は保存される）
+5. 演出中に別の画面へ移動しても、`/mypage/draws` に結果が残っている
+
+OS の「視差効果を減らす」を有効にすると、溜めも揺れも無く即座に全件表示されます
+（結果が見えなくなることはありません）。
+
+**ポイント交換:**
+
+1. `/mypage/prizes` に未選択の商品が並ぶ
+2. 「N P へ交換」→ 確認ダイアログで付与ポイントと**取消不可**である旨を確認
+3. 交換するとポイントが増え、状態が「ポイント交換済み」になる
+4. 同じ商品をもう一度交換しようとすると 409 になる
+
+二重交換ができないことの確認:
+
+```bash
+# 同じ商品へ別々の冪等性キーで 2 回送る → 2 回目は PRIZE_NOT_UNDECIDED
+for i in 1 2; do
+  curl -s -u tester:closed_test_password -b cookie.txt \
+    -H 'Content-Type: application/json' \
+    -H "Idempotency-Key: $(uuidgen)" \
+    -d '{"confirm":true}' \
+    http://127.0.0.1:3000/api/prizes/<PRIZE_ID>/exchange | jq -r '.error.code // "OK"'
+done
+```
+
+同時実行の検証はテストで行います。
+
+```bash
+pnpm exec vitest run --project concurrency
+```
 
 ### 発送申請の確認方法（Phase 7 で実装）
 
@@ -344,7 +533,7 @@ pnpm points:reconcile  # ポイント台帳の整合性検証
 | `SITE_ACCESS_MODE=closed では Basic 認証の資格情報が必須です` | `SITE_BASIC_AUTH_USER` / `SITE_BASIC_AUTH_PASSWORD` を設定する                                                                                   |
 | `本番既定値のままにはできません`                              | `next start` は `NODE_ENV=production` で動く。`MOCK_PAYMENT_WEBHOOK_SECRET` を変更する                                                           |
 | `POINT_EXPIRY_DAYS_PAID は 180 日以下に`                      | 有償ポイントの有効期限は 6 か月未満に固定している（[理由](./docs/07-point-ledger.md#3-有償ポイントの有効期限を-180-日に固定する理由)）           |
-| `SessionNotImplementedError`                                  | 認証は Phase 2 で実装する。Phase 1 では認証必須 API を呼び出せない                                                                               |
+| `SessionResolverNotConfiguredError`                           | セッション解決が未登録。`@/server/session-bootstrap.ts` を import 済みか確認する（通常は自動で登録される）                                       |
 | `APPEND_ONLY_VIOLATION`                                       | 台帳・監査ログ・抽選履歴は追記専用。訂正は打ち消しの記帳で行う                                                                                   |
 | テストが `"test" が含まれていません` で止まる                 | `TEST_DATABASE_URL` にテスト専用 DB を指定する                                                                                                   |
 | `pnpm build` は通るのに起動しない                             | ビルド時は環境変数の相互依存ルールを検査しない（[理由](./docs/10-known-limitations.md#3-1-next-build-時は環境変数の相互依存ルールを適用しない)） |

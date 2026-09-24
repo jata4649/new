@@ -47,6 +47,23 @@ const RESTRICT_REDIS_IN_POINTS = {
   ],
 }
 
+/**
+ * クライアントコンポーネントが node 専用モジュールを引き込むのを防ぐ。
+ *
+ * 制限値だけが欲しくて `lib/uploads/images.ts` を import すると、
+ * そこが使う `node:crypto` までブラウザのバンドルへ入ってしまう。
+ * 画面から読みたい値は `lib/uploads/limits.ts` に置いてある。
+ */
+const RESTRICT_SERVER_ONLY_IN_COMPONENTS = {
+  patterns: [
+    {
+      group: ['@/lib/uploads/images', '@/lib/uploads/images.ts', '@/server/*', '@/server/**'],
+      message:
+        'クライアントコンポーネントからサーバー専用モジュールを import しないでください（node 専用の依存がブラウザへ入ります）。制限値は @/lib/uploads/limits.ts にあります。',
+    },
+  ],
+}
+
 const NO_MATH_RANDOM = [
   {
     object: 'Math',
@@ -109,6 +126,12 @@ export default tseslint.config(
     files: ['src/modules/points/**/*.ts', 'src/modules/draws/**/*.ts'],
     rules: {
       'no-restricted-imports': ['error', RESTRICT_REDIS_IN_POINTS],
+    },
+  },
+  {
+    files: ['src/components/**/*.tsx'],
+    rules: {
+      'no-restricted-imports': ['error', RESTRICT_SERVER_ONLY_IN_COMPONENTS],
     },
   },
 

@@ -1,20 +1,22 @@
+import Link from 'next/link'
+
 import { publicEnv } from '@/lib/config/env.ts'
 
 /**
- * Phase 1 の暫定トップページ。
- * 実際のオリパ一覧は Phase 4 以降で (public)/oripas として実装する。
- * ここでは「基盤が起動していること」を確認できる最小限の内容に留める。
+ * トップページ。
+ * 公開中のオリパは /oripas で一覧できる（Phase 4）。
+ * ここでは開発の進捗と、クローズドテストであることの明示に留める。
  */
 export default function HomePage() {
   const phases = [
     { id: 1, title: '基盤・DB スキーマ・Docker', done: true },
-    { id: 2, title: '認証・ユーザー・RBAC・管理画面基盤', done: false },
-    { id: 3, title: 'ポイント台帳・ロット・Mock 決済', done: false },
-    { id: 4, title: 'カード在庫・オリパ作成・抽選スロット生成', done: false },
-    { id: 5, title: '1 回抽選・10 連抽選・冪等性・排他制御', done: false },
-    { id: 6, title: '演出・抽選結果・商品一覧・ポイント交換', done: false },
-    { id: 7, title: '配送先・発送申請・発送管理', done: false },
-    { id: 8, title: '監査ログ・セキュリティ・テスト・ドキュメント', done: false },
+    { id: 2, title: '認証・ユーザー・RBAC・管理画面基盤', done: true },
+    { id: 3, title: 'ポイント台帳・ロット・Mock 決済', done: true },
+    { id: 4, title: 'カード在庫・オリパ作成・抽選スロット生成', done: true },
+    { id: 5, title: '1 回抽選・10 連抽選・冪等性・排他制御', done: true },
+    { id: 6, title: '演出・抽選結果・商品一覧・ポイント交換', done: true },
+    { id: 7, title: '配送先・発送申請・発送管理', done: true },
+    { id: 8, title: '監査ログ・セキュリティ・テスト・ドキュメント', done: true },
   ]
 
   return (
@@ -22,6 +24,16 @@ export default function HomePage() {
       <h1 className="text-2xl font-bold">{publicEnv.NEXT_PUBLIC_SITE_NAME}</h1>
       <p className="text-base-100 mt-2 text-sm">
         クローズドテスト用の開発環境です。現金決済・現金買取り・一般公開は行いません。
+        景品名と画像はすべて架空のサンプルです。
+      </p>
+
+      <p className="mt-6">
+        <Link
+          href="/oripas"
+          className="bg-accent-500 text-base-950 inline-block rounded-lg px-5 py-3 text-sm font-bold"
+        >
+          オリパ一覧を見る
+        </Link>
       </p>
 
       <section className="mt-8" aria-labelledby="phase-heading">

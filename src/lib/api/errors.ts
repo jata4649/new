@@ -36,6 +36,10 @@ export const ERROR_CODES = {
   PRIZE_NOT_SHIPPABLE: 'PRIZE_NOT_SHIPPABLE',
   PRIZE_ALREADY_REQUESTED: 'PRIZE_ALREADY_REQUESTED',
 
+  // 発送
+  SHIPPING_NOT_CANCELLABLE: 'SHIPPING_NOT_CANCELLABLE',
+  SHIPPING_TRANSITION_NOT_ALLOWED: 'SHIPPING_TRANSITION_NOT_ALLOWED',
+
   // 決済
   PAYMENT_NOT_CONFIRMABLE: 'PAYMENT_NOT_CONFIRMABLE',
   WEBHOOK_SIGNATURE_INVALID: 'WEBHOOK_SIGNATURE_INVALID',
@@ -168,11 +172,38 @@ export const errors = {
       'この商品はすでに交換または発送申請が済んでいます',
     ),
 
-  prizeNotShippable: () =>
-    new AppError(ERROR_CODES.PRIZE_NOT_SHIPPABLE, 409, 'この商品は発送申請の対象外です'),
+  prizeNotShippable: (name?: string) =>
+    new AppError(
+      ERROR_CODES.PRIZE_NOT_SHIPPABLE,
+      409,
+      name
+        ? `「${name}」は発送申請の対象外です（ポイント交換のみ）`
+        : 'この商品は発送申請の対象外です',
+    ),
 
   prizeAlreadyRequested: () =>
     new AppError(ERROR_CODES.PRIZE_ALREADY_REQUESTED, 409, 'この商品はすでに発送申請中です'),
+
+  /**
+   * 取り消せない段階に入っている。
+   * 現在の状態を meta に載せるが、利用者向け文面には出さない
+   * （内部の状態名をそのまま見せても意味が伝わらないため）。
+   */
+  shippingNotCancellable: (currentStatus: string) =>
+    new AppError(
+      ERROR_CODES.SHIPPING_NOT_CANCELLABLE,
+      409,
+      'この発送申請はすでに準備が進んでいるため取り消せません',
+      { meta: { currentStatus } },
+    ),
+
+  shippingTransitionNotAllowed: (from: string, to: string) =>
+    new AppError(
+      ERROR_CODES.SHIPPING_TRANSITION_NOT_ALLOWED,
+      409,
+      'この発送状態へは変更できません',
+      { meta: { from, to } },
+    ),
 
   paymentNotConfirmable: (meta?: Record<string, unknown>) =>
     new AppError(ERROR_CODES.PAYMENT_NOT_CONFIRMABLE, 409, 'この決済は確定できない状態です', {

@@ -51,11 +51,15 @@ export default defineConfig({
     { name: 'desktop', use: { ...devices['Desktop Chrome'], ...launchOptions } },
   ],
 
+  // E2E_BASE_URL が指定されている場合は、すでに起動しているサーバーを使う。
+  // 指定が無ければ Playwright がサーバーを起動する。
+  // CI のようにビルド済みの環境では PLAYWRIGHT_WEB_SERVER_COMMAND='pnpm start' を
+  // 指定して、ビルドの二重実行を避ける。
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: 'pnpm build && pnpm start',
-        url: baseURL,
+        command: process.env.PLAYWRIGHT_WEB_SERVER_COMMAND ?? 'pnpm build && pnpm start',
+        url: `${baseURL}/api/health`,
         reuseExistingServer: !process.env.CI,
         timeout: 180_000,
       },

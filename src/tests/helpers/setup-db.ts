@@ -1,20 +1,21 @@
-import { PrismaPg } from '@prisma/adapter-pg'
 import { afterAll, beforeEach } from 'vitest'
 
-import { PrismaClient } from '@/generated/prisma/client.ts'
 import { loadDotEnvFiles } from '@/lib/config/dotenv.ts'
 
 /**
  * 統合テスト・同時実行テスト用の DB セットアップ。
  *
+ * 【重要】DATABASE_URL をテスト用へ差し替えてから @/server/db を読み込む
+ *   サービス層は @/server/db の prisma シングルトンを使う。
+ *   その解決より前に DATABASE_URL を上書きしないと、
+ *   テストが**開発用 DB へ書き込んでしまう**。
+ *   そのため、このファイルの先頭で環境変数を差し替え、
+ *   動的 import で Prisma クライアントを生成する。
+ *
  * 【重要】クリーンアップに DELETE を使わない
  *   台帳・監査ログ・抽選履歴は DB トリガで DELETE を拒否しているため、
  *   DELETE によるクリーンアップは必ず失敗する（それが正しい挙動）。
- *   TRUNCATE はトリガの対象外なので、テストのクリーンアップには TRUNCATE を使う。
- *
- * 接続先は TEST_DATABASE_URL（無ければ DATABASE_URL）。
- * 開発 DB を誤って消さないよう、URL に 'test' を含まない場合は明示的な
- * 許可フラグ（ALLOW_DESTRUCTIVE_TESTS=1）が無い限り実行を中止する。
+ *   TRUNCATE はトリガの対象外なので、クリーンアップには TRUNCATE を使う。
  */
 
 loadDotEnvFiles()
@@ -40,11 +41,20 @@ function resolveTestDatabaseUrl(): string {
   return url
 }
 
-const connectionString = resolveTestDatabaseUrl()
+// サービス層が同じ DB を見るよう、import より前に差し替える
+process.env.DATABASE_URL = resolveTestDatabaseUrl()
 
-export const testPrisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString }),
-})
+// 環境変数の検証が通るよう、テストで未設定になりがちな値を補う
+process.env.AUTH_SECRET ??= 'test-secret-'.padEnd(48, 'x')
+process.env.SITE_BASIC_AUTH_USER ??= 'tester'
+process.env.SITE_BASIC_AUTH_PASSWORD ??= 'tester-password'
+// レート制限は Redis に依存するためテストでは無効化する
+process.env.RATE_LIMIT_ENABLED = 'false'
+
+const { prisma } = await import('@/server/db.ts')
+
+/** サービス層と同じ接続を共有するクライアント */
+export const testPrisma = prisma
 
 /**
  * テーブルを空にする。
